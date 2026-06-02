@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Absurd Theater</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&family=IM+Fell+English:ital@0;1&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --gold: #c9a84c;
+    --deep-red: #6b0f1a;
+    --curtain: #7c1c2b;
+    --curtain-dark: #4a0e18;
+    --bg: #0a0805;
+    --text: #e8dcc8;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IM Fell English', serif;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* ── Stage ── */
+  #stage-container {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* Spotlight background */
+  #stage-container::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 55% 70% at 50% 45%, #1a1208 0%, #0a0805 100%);
+    z-index: 0;
+  }
+
+  /* ── Video feed / stage window ── */
+  #stage-window {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 56vw;
+    max-width: 720px;
+    aspect-ratio: 4/3;
+    z-index: 1;
+    border: 3px solid #3a2a0a;
+    box-shadow: 0 0 60px 20px rgba(180, 130, 30, 0.12), 0 0 0 1px #5a4010;
+    background: #000;
+    display: none;
+  }
+
+  #stage-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  /* Spotlight glow overlay on the video */
+  #stage-window::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 70% 70% at 50% 50%, transparent 55%, rgba(0,0,0,0.45) 100%);
+    pointer-events: none;
+  }
+
+  /* ── Curtains ── */
+  #curtain-left, #curtain-right {
+    position: absolute;
+    top: 0;
+    width: 50%;
+    height: 100%;
+    z-index: 10;
+    background:
+      repeating-linear-gradient(
+        to right,
+        var(--curtain-dark) 0px,
+        var(--curtain) 18px,
+        var(--curtain-dark) 36px
+      );
+    transition: transform 1.6s cubic-bezier(0.77, 0, 0.18, 1);
+  }
+  #curtain-left  { left: 0;  transform-origin: left;  border-right: 4px solid #3a0a10; }
+  #curtain-right { right: 0; transform-origin: right; border-left:  4px solid #3a0a10; }
+
+  /* Curtain valance */
+  #curtain-left::before, #curtain-right::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 60px;
+    background: linear-gradient(180deg, #4a0000 0%, transparent 100%);
+    border-bottom: 3px solid var(--gold);
+  }
+
+  /* Curtain fringe */
+  #curtain-left::after, #curtain-right::after {
+    content: '▾▾▾▾▾▾▾▾▾▾▾▾▾▾▾▾▾▾▾▾▾▾▾▾▾▾▾▾▾▾';
+    position: absolute;
+    top: 57px; left: 0; right: 0;
+    color: var(--gold);
+    font-size: 20px;
+    letter-spacing: -2px;
+    line-height: 1;
+    overflow: hidden;
+    opacity: 0.8;
+  }
+
+  .curtains-open #curtain-left  { transform: translateX(-92%); }
+  .curtains-open #curtain-right { transform: translateX(92%); }
+
+  /* ── Landing screen ── */
+  #landing {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 28px;
+    pointer-events: none;
+  }
+
+  #landing.hidden { display: none; }
+
+  #landing h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(2.2rem, 5vw, 4rem);
+    color: var(--gold);
+    text-align: center;
+    text-shadow: 0 0 40px rgba(180,130,30,0.4), 0 2px 8px #000;
+    letter-spacing: 0.04em;
+    line-height: 1.1;
+  }
+
+  #landing p {
+    font-style: italic;
+    font-size: 1.1rem;
+    color: #b09060;
+    text-align: center;
+    max-width: 420px;
+    line-height: 1.6;
+  }
+
+  #btn-start {
+    pointer-events: all;
+    background: linear-gradient(135deg, var(--gold), #8a6010);
+    color: #1a0e04;
+    border: none;
+    padding: 16px 48px;
+    font-family: 'Playfair Display', serif;
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    clip-path: polygon(8px 0%, calc(100% - 8px) 0%, 100% 50%, calc(100% - 8px) 100%, 8px 100%, 0% 50%);
+    transition: filter 0.2s, transform 0.15s;
+  }
+  #btn-start:hover { filter: brightness(1.15); transform: scale(1.04); }
+
+  /* ── Title card ── */
+  #title-card {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: rgba(0,0,0,0.72);
+    opacity: 0;
+    transition: opacity 0.5s;
+    pointer-events: none;
+  }
+  #title-card.visible { opacity: 1; }
+  #title-card.hidden { display: none; }
+
+  #genre-label {
+    font-size: 0.95rem;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--gold);
+    opacity: 0.75;
+  }
+
+  #play-title {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(1.8rem, 3.5vw, 3rem);
+    color: var(--gold);
+    text-align: center;
+    max-width: 680px;
+    text-shadow: 0 0 30px rgba(180,130,30,0.5);
+    font-style: italic;
+    line-height: 1.15;
+  }
+
+  #title-divider {
+    width: 200px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--gold), transparent);
+    margin: 6px 0;
+  }
+
+  /* ── Countdown prompt ── */
+  #beat-prompt {
+    position: absolute;
+    inset: 0;
+    z-index: 7;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    background: rgba(0,0,0,0.8);
+    pointer-events: none;
+    display: none;
+  }
+  #beat-prompt.visible { display: flex; }
+
+  #beat-prompt p {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(1.4rem, 2.5vw, 2.2rem);
+    color: var(--text);
+    text-align: center;
+  }
+  #beat-countdown {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(3rem, 7vw, 6rem);
+    color: var(--gold);
+    text-shadow: 0 0 30px var(--gold);
+    font-style: italic;
+  }
+
+  /* ── Object card ── */
+  #object-card {
+    position: absolute;
+    top: 12%;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 8;
+    background: rgba(0,0,0,0.85);
+    border: 1px solid var(--gold);
+    padding: 14px 36px;
+    font-family: 'Playfair Display', serif;
+    font-size: 1.1rem;
+    color: var(--gold);
+    text-align: center;
+    letter-spacing: 0.05em;
+    opacity: 0;
+    transition: opacity 0.4s;
+    pointer-events: none;
+  }
+  #object-card.visible { opacity: 1; }
+  #object-card small {
+    display: block;
+    font-family: 'IM Fell English', serif;
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #8a6a30;
+    margin-bottom: 4px;
+  }
+
+  /* ── THE END card ── */
+  #the-end {
+    position: absolute;
+    inset: 0;
+    z-index: 9;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    display: none;
+  }
+  #the-end.visible { display: flex; }
+  #the-end h2 {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(3rem, 7vw, 6rem);
+    color: var(--gold);
+    letter-spacing: 0.1em;
+    text-shadow: 0 0 50px rgba(180,130,30,0.6);
+    font-style: italic;
+  }
+  #the-end p {
+    font-style: italic;
+    color: #9a7a40;
+    font-size: 1rem;
+    letter-spacing: 0.15em;
+  }
+
+  /* ── Subtitle bar ── */
+  #subtitle-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 12;
+    min-height: 70px;
+    background: linear-gradient(0deg, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.6) 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 14px 48px;
+    border-top: 1px solid rgba(180,130,30,0.2);
+  }
+
+  #subtitle-text {
+    font-size: clamp(1rem, 2vw, 1.25rem);
+    text-align: center;
+    color: #f0e4c0;
+    font-style: italic;
+    line-height: 1.5;
+    max-width: 820px;
+    text-shadow: 0 1px 4px #000;
+    min-height: 1.5em;
+    transition: opacity 0.3s;
+  }
+
+  /* ── Timer ── */
+  #timer {
+    position: absolute;
+    top: 18px;
+    right: 24px;
+    z-index: 15;
+    font-family: 'Playfair Display', serif;
+    font-size: 1rem;
+    color: #7a5a20;
+    letter-spacing: 0.12em;
+  }
+  #timer span { color: var(--gold); }
+
+  /* ── Restart btn ── */
+  #btn-restart {
+    display: none;
+    background: transparent;
+    border: 1px solid var(--gold);
+    color: var(--gold);
+    padding: 10px 30px;
+    font-family: 'Playfair Display', serif;
+    font-size: 1rem;
+    cursor: pointer;
+    letter-spacing: 0.08em;
+    transition: background 0.2s;
+  }
+  #btn-restart:hover { background: rgba(180,130,30,0.15); }
+</style>
+</head>
+<body>
+
+<div id="stage-container">
+
+  <!-- Curtains -->
+  <div id="curtain-left"></div>
+  <div id="curtain-right"></div>
+
+  <!-- Stage video (MJPEG) -->
+  <div id="stage-window">
+    <img id="stage-video" src="" alt="stage">
+  </div>
+
+  <!-- Landing -->
+  <div id="landing">
+    <h1>The Absurd<br>Theater</h1>
+    <p>An AI narrator will improvise a dramatic story using whatever objects you hold up to the camera.</p>
+    <button id="btn-start">▶ Start the Show</button>
+  </div>
+
+  <!-- Title card -->
+  <div id="title-card" class="hidden">
+    <div id="genre-label">—— Genre ——</div>
+    <div id="play-title">Loading…</div>
+    <div id="title-divider"></div>
+  </div>
+
+  <!-- Beat countdown prompt -->
+  <div id="beat-prompt">
+    <p>Bring something to the stage in…</p>
+    <div id="beat-countdown">3</div>
+  </div>
+
+  <!-- Object card -->
+  <div id="object-card">
+    <small>Now entering the stage</small>
+    <span id="object-name"></span>
+  </div>
+
+  <!-- THE END -->
+  <div id="the-end">
+    <h2>THE END</h2>
+    <p>— Fin —</p>
+    <button id="btn-restart">Encore Performance</button>
+  </div>
+
+  <!-- Subtitle bar (always visible) -->
+  <div id="subtitle-bar">
+    <div id="subtitle-text"></div>
+  </div>
+
+  <!-- Timer -->
+  <div id="timer" style="display:none">⏱ <span id="timer-val">1:30</span></div>
+
+</div>
+
+<script>
+// ── TTS ─────────────────────────────────────────────────────────────────────
+const synth = window.speechSynthesis;
+
+function speak(text, onDone) {
+  synth.cancel();
+  if (!text) { if (onDone) onDone(); return; }
+  const utt = new SpeechSynthesisUtterance(text);
+  utt.lang = 'en-US';
+  utt.rate = 0.88;
+  utt.pitch = 0.95;
+  utt.onend = () => { if (onDone) onDone(); };
+  utt.onerror = () => { if (onDone) onDone(); };
+  // prefer a dramatic voice if available
+  const voices = synth.getVoices();
+  const pref = voices.find(v => /daniel|alex|fred|thomas/i.test(v.name) && v.lang.startsWith('en'));
+  if (pref) utt.voice = pref;
+  synth.speak(utt);
+}
+
+// ── Subtitle ─────────────────────────────────────────────────────────────────
+const $subtitle = document.getElementById('subtitle-text');
+function subtitle(text) { $subtitle.textContent = text; }
+
+// ── DOM refs ─────────────────────────────────────────────────────────────────
+const $landing    = document.getElementById('landing');
+const $titleCard  = document.getElementById('title-card');
+const $genreLabel = document.getElementById('genre-label');
+const $playTitle  = document.getElementById('play-title');
+const $beatPrompt = document.getElementById('beat-prompt');
+const $beatCd     = document.getElementById('beat-countdown');
+const $objectCard = document.getElementById('object-card');
+const $objectName = document.getElementById('object-name');
+const $theEnd     = document.getElementById('the-end');
+const $stageWin   = document.getElementById('stage-window');
+const $stageVideo = document.getElementById('stage-video');
+const $container  = document.getElementById('stage-container');
+const $timer      = document.getElementById('timer');
+const $timerVal   = document.getElementById('timer-val');
+const $btnStart   = document.getElementById('btn-start');
+const $btnRestart = document.getElementById('btn-restart');
+
+// ── State ────────────────────────────────────────────────────────────────────
+let genre = '', theme = '', storyText = '';
+let totalTimer = null, secondsLeft = 90;
+let forceEnding = false;
+
+function formatTime(s) {
+  return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+}
+
+function startMasterTimer() {
+  secondsLeft = 90;
+  $timer.style.display = '';
+  $timerVal.textContent = formatTime(secondsLeft);
+  totalTimer = setInterval(() => {
+    secondsLeft--;
+    $timerVal.textContent = formatTime(secondsLeft);
+    if (secondsLeft <= 0) {
+      clearInterval(totalTimer);
+      forceEnding = true;
+    }
+  }, 1000);
+}
+
+// ── API helpers ──────────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  return r.json();
+}
+
+// ── Show flow ─────────────────────────────────────────────────────────────────
+
+$btnStart.addEventListener('click', startShow);
+$btnRestart.addEventListener('click', () => location.reload());
+
+async function startShow() {
+  forceEnding = false;
+  $landing.classList.add('hidden');
+
+  // Open webcam stream
+  $stageVideo.src = '/video_feed';
+  $stageWin.style.display = 'block';
+
+  // Open curtains
+  $container.classList.add('curtains-open');
+
+  // Fetch genre + theme
+  const showData = await api('GET', '/new_show');
+  genre = showData.genre;
+  theme = showData.theme;
+  storyText = '';
+
+  // Show title card
+  $genreLabel.textContent = `— ${genre} —`;
+  $playTitle.textContent = `"${theme}"`;
+  $titleCard.classList.remove('hidden');
+  $titleCard.classList.add('visible');
+  subtitle(`A ${genre} in one act: "${theme}"`);
+
+  await delay(2800);
+  $titleCard.classList.remove('visible');
+  await delay(600);
+  $titleCard.classList.add('hidden');
+
+  startMasterTimer();
+
+  // Narrator intro
+  await narratorBeat(
+    `Open with 2-3 lines introducing a ${genre} play titled "${theme}". Set the scene dramatically. Max 45 words.`,
+    false,
+    true
+  );
+
+  if (forceEnding) { await doEnding(); return; }
+
+  // Three object beats
+  for (let i = 0; i < 3; i++) {
+    if (forceEnding) break;
+    await objectBeat(i);
+    if (forceEnding) break;
+  }
+
+  await doEnding();
+}
+
+async function narratorBeat(prompt, isEnding, isIntro) {
+  let line;
+  if (isIntro) {
+    // Intro is a direct prompt sent as a narrate call with no object
+    try {
+      const r = await api('POST', '/narrate', {
+        genre, theme,
+        story_so_far: '',
+        new_object: 'the empty stage',
+        is_ending: false,
+      });
+      line = r.line;
+    } catch(e) {
+      line = 'The curtain rises on a world trembling at the edge of destiny.';
+    }
+  }
+  subtitle(line || '…');
+  await speakAndWait(line);
+  storyText += ' ' + (line || '');
+}
+
+async function objectBeat(index) {
+  // Countdown
+  $beatPrompt.classList.add('visible');
+  for (let n = 3; n >= 1; n--) {
+    $beatCd.textContent = n;
+    subtitle(`Bring something to the stage in… ${n}`);
+    await delay(1000);
+    if (forceEnding) { $beatPrompt.classList.remove('visible'); return; }
+  }
+  $beatPrompt.classList.remove('visible');
+
+  // Capture
+  const cap = await api('POST', '/capture', {});
+  const objects = cap.objects || ['a mysterious object'];
+  const objectStr = objects.join(', ');
+
+  // Object card
+  $objectName.textContent = objectStr;
+  $objectCard.classList.add('visible');
+  subtitle(`Now entering the stage: ${objectStr}`);
+  await delay(2200);
+  $objectCard.classList.remove('visible');
+
+  // Narrate
+  let line;
+  try {
+    const r = await api('POST', '/narrate', {
+      genre, theme,
+      story_so_far: storyText.trim(),
+      new_object: objectStr,
+      is_ending: false,
+    });
+    line = r.line;
+  } catch(e) {
+    line = 'And so the fates delivered unto this stage an omen of unspeakable consequence.';
+  }
+  subtitle(line);
+  storyText += ' ' + line;
+  await speakAndWait(line);
+}
+
+async function doEnding() {
+  clearInterval(totalTimer);
+
+  // Final narration
+  let line;
+  try {
+    const r = await api('POST', '/narrate', {
+      genre, theme,
+      story_so_far: storyText.trim(),
+      new_object: 'the end of all things',
+      is_ending: true,
+    });
+    line = r.line;
+  } catch(e) {
+    line = 'And thus the curtain fell upon a world forever changed by what had transpired here today.';
+  }
+  subtitle(line);
+  await speakAndWait(line);
+
+  // Close curtains
+  $container.classList.remove('curtains-open');
+  subtitle('');
+  await delay(1800);
+
+  // THE END
+  $stageWin.style.display = 'none';
+  $theEnd.classList.add('visible');
+  $btnRestart.style.display = 'inline-block';
+  $timer.style.display = 'none';
+}
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function speakAndWait(text) {
+  return new Promise(resolve => speak(text, resolve));
+}
+
+// Preload voices
+window.addEventListener('load', () => { synth.getVoices(); });
+</script>
+</body>
+</html>
