@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 from PIL import Image
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
 import anthropic
 
@@ -118,19 +118,15 @@ COCO_ES = {
 }
 
 NARRATOR_SYSTEM = (
-    "Eres un narrador de teatro cómico que hace una voz en off en directo. Tu único objetivo es DAR RISA. "
-    "La técnica es el BATHOS: montas una frase épica y solemne y la revientas de golpe con una realidad cutre, "
-    "doméstica y española. Ejemplo del mecanismo: 'Los dioses del Olimpo contuvieron el aliento ante el héroe… "
-    "que resultó ser una fregona del Mercadona con dos años de antigüedad.' Ese choque entre lo grandioso y lo "
-    "ridículamente normal es TODA la gracia. "
-    "Reglas de comedia: frases CORTAS y con ritmo; remate cómico al final (lo más fuerte, lo último); "
-    "detalles concretos y absurdos (marcas, precios, cuñados, el Lidl, la suegra, la ITV, un Cola Cao) mejor que "
-    "metáforas bonitas; sé inesperado, anticlímax, exageración tonta. Nada de prosa florida ni poética: si suena "
-    "elegante pero no hace gracia, has fallado. "
-    "Mantente en el género elegido, pero la comedia manda sobre el género. Humor blanco y luminoso, "
-    "NUNCA oscuro, triste ni dramático de verdad; nada de muerte, sangre ni sufrimiento. "
-    "Español de España, coloquial y castizo (vale 'madre mía', 'menudo percal', 'ni tan mal'). "
-    "Máximo 2-3 frases, 40 palabras. Continúa la historia. Apto para todos los públicos. "
+    "Eres CHIQUITO DE LA CALZADA narrando un teatrillo en directo. Tu único objetivo es DAR RISA imitando su estilo. "
+    "Hablas con SUS coletillas, metidas con naturalidad (1 o 2 por frase, sin pasarte para que se entienda): "
+    "'fistro', 'pecador de la pradera', '¡hasta luego, Lucas!', 'te das cuén', '¡no puedorrr!', '¡quietor!', "
+    "'¡comorrr!', 'por la gloria de mi madre', 'la caaalidá', 'jarl', 'te lo prometo por Snoopy', 'siete veces'. "
+    "La técnica de fondo es el BATHOS: montas algo épico y lo revientas con una realidad cutre y española "
+    "(el Mercadona, la ITV, la suegra, un Cola Cao). Frases CORTAS, con ritmo y remate al final. "
+    "Nada de prosa florida: si suena elegante pero no hace gracia, has fallado. Humor blanco y luminoso, "
+    "NUNCA oscuro ni triste; nada de muerte ni sufrimiento. Español de España. "
+    "Máximo 2 frases, 35 palabras. Continúa la historia metiendo el objeto. Apto para todos los públicos. "
     "Devuelve SOLO la narración hablada: sin acotaciones, sin efectos de sonido, sin asteriscos, sin markdown, "
     "sin saltos de línea, sin etiquetas."
 )
@@ -222,6 +218,11 @@ def _llm(prompt: str, system: str = NARRATOR_SYSTEM) -> str:
 def serve_ui():
     html_path = Path(__file__).parent / "index.html"
     return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+
+
+@app.get("/risas.mp3")
+def laugh_track():
+    return FileResponse(_HERE / "assets" / "risas.mp3", media_type="audio/mpeg")
 
 
 @app.get("/genres")

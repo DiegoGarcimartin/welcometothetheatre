@@ -493,38 +493,33 @@
 </div>
 
 <script>
-// ── Canned laughter (cheap synthesized sitcom laugh track) ──────────────────────
-let audioCtx = null;
+// ── Canned laughter (real cheesy laugh-track clip) ──────────────────────────────
+const laughAudio = new Audio('/risas.mp3');
+laughAudio.preload = 'auto';
+laughAudio.volume = 0.7;
+
 function initAudio() {
+  // Unlock audio on the user gesture: play muted for a tick, then reset.
   try {
-    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    if (audioCtx.state === 'suspended') audioCtx.resume();
+    laughAudio.muted = true;
+    laughAudio.play().then(() => {
+      laughAudio.pause();
+      laughAudio.currentTime = 0;
+      laughAudio.muted = false;
+    }).catch(() => { laughAudio.muted = false; });
   } catch (e) { /* no audio, no problem */ }
 }
-// A deliberately cheesy "ja-ja-ja-ja" laugh sting built from detuned oscillators.
-function playLaugh() {
-  if (!audioCtx) return;
-  const ctx = audioCtx, t0 = ctx.currentTime;
-  const beats = [0, 0.14, 0.28, 0.42, 0.58, 0.74];           // each "ja"
-  beats.forEach((bt, i) => {
-    [0, 7, -6].forEach(detune => {                            // 3 detuned voices = tiny "crowd"
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.type = 'sawtooth';
-      const base = 300 - i * 14 + (Math.sin(i) * 8);          // descending, wobbly = cutre
-      o.frequency.setValueAtTime(base, t0 + bt);
-      o.frequency.exponentialRampToValueAtTime(base * 0.78, t0 + bt + 0.1);
-      o.detune.value = detune;
-      g.gain.setValueAtTime(0.0001, t0 + bt);
-      g.gain.exponentialRampToValueAtTime(0.12, t0 + bt + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + bt + 0.13);
-      o.connect(g).connect(ctx.destination);
-      o.start(t0 + bt); o.stop(t0 + bt + 0.14);
-    });
-  });
-}
+
+// Play the laugh clip (capped to ~2.5s so it doesn't drag), then resolve.
 function laughAndWait() {
-  playLaugh();
-  return delay(950);
+  try {
+    laughAudio.currentTime = 0;
+    const p = laughAudio.play();
+    if (p && p.catch) p.catch(() => {});
+    // stop it after a beat so a long clip doesn't stall the show
+    setTimeout(() => { try { laughAudio.pause(); laughAudio.currentTime = 0; } catch (e) {} }, 2500);
+  } catch (e) { /* ignore */ }
+  return delay(2000);
 }
 
 // ── TTS ─────────────────────────────────────────────────────────────────────
