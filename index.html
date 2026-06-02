@@ -749,6 +749,7 @@ async function startShow() {
   subtitle(intro);
   storyText = intro;
   await speakAndWait(intro);
+  await playClip(nextSting());
 
   // Object rounds — each detected object is woven into the running story
   for (let i = 0; i < OBJECT_ROUNDS; i++) {
@@ -829,6 +830,8 @@ async function weaveBeat(index) {
   subtitle(line);
   storyText += ' ' + line;
   await speakAndWait(line);
+  // pile on the Chiquito: another coletilla + canned laughter
+  await playClip(nextSting());
   await laughAndWait();
 }
 
