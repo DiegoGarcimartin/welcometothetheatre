@@ -6,7 +6,9 @@ real objects you hold up to the camera — narrating a coffee mug or a banana wi
 full operatic gravity. One continuous ~90s performance.
 
 - **Backend:** Python + FastAPI (`main.py`)
-- **Vision:** [libreyolo](https://pypi.org/project/libreyolo/) object detection on the webcam frame
+- **Camera:** owned by the **browser** (`getUserMedia`) — frames are POSTed to the
+  backend for detection, so it works for anyone who opens the page
+- **Vision:** [libreyolo](https://pypi.org/project/libreyolo/) object detection on each captured frame
 - **Narration:** Anthropic Claude (`claude-sonnet-4-5`)
 - **Voice:** browser Web Speech API (no cloud TTS needed)
 - **Frontend:** a single `index.html` (velvet curtains, gold title cards, subtitles)
@@ -44,25 +46,26 @@ cp .env.example .env
 # or: uvicorn main:app --port 8010
 ```
 
-Open **http://localhost:8010** and click **Start the Show**.
+Open **http://localhost:8010** and click **Start the Show**. Your **browser**
+will ask for **camera permission** — click *Allow*. Use **Chrome** for the best
+Web Speech API voices, and turn the volume up.
 
-> Your browser will ask for **camera permission** — the *backend* owns the
-> webcam via OpenCV, so make sure no other app is using it. Use **Chrome** for
-> the best Web Speech API voices.
+> The camera is opened by the browser, not the server, so the only thing that
+> needs camera access is your browser tab. Each teammate just opens the page on
+> their own machine and allows the camera.
 
 ## How it works
 
 | Endpoint | Purpose |
 |---|---|
 | `GET /` | serves the HTML stage |
-| `GET /video_feed` | MJPEG stream of the webcam |
 | `GET /new_show` | picks a random genre + an LLM-generated play title |
-| `POST /capture` | grabs a frame, runs detection, returns objects (conf > 0.5; funny fallback if none) |
+| `POST /capture` | runs detection on the posted webcam frame, returns objects (conf > 0.5; funny fallback if none) |
 | `POST /narrate` | returns a 2-3 sentence dramatic continuation in genre |
 
 If `ANTHROPIC_API_KEY` is unset or the API fails, the narrator falls back to
-canned dramatic lines so the show never stalls. If the webcam can't open, the
-stage shows a clear error frame.
+canned dramatic lines so the show never stalls. If the camera can't be opened,
+the stage shows a clear message and the show continues on fallback objects.
 
 The `narrate()` and `speak()` functions are isolated so they can be swapped for
 a different LLM or a cloud TTS later.

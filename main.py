@@ -1,13 +1,14 @@
 import os
-import cv2
-import time
+import re
+import base64
 import random
-import threading
 import numpy as np
+import cv2
 from pathlib import Path
+from typing import Optional
 from PIL import Image
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import anthropic
 
@@ -50,12 +51,10 @@ except Exception as e:
     _yolo = None
     YOLO_LOADED = False
 
-# ── Startup: webcam ───────────────────────────────────────────────────────────
-_cap = cv2.VideoCapture(0)
-_cam_lock = threading.Lock()
-WEBCAM_OK = _cap.isOpened()
-if not WEBCAM_OK:
-    print("[startup] WARNING: webcam not found. /video_feed will show error frame.")
+# Note: the webcam is owned by the BROWSER (getUserMedia), not the backend.
+# The frontend grabs frames and POSTs them to /capture for detection. This
+# means it works for anyone who opens the page — no server-side camera
+# permission needed.
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 GENRES = [
@@ -99,32 +98,16 @@ app = FastAPI()
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _error_frame() -> bytes:
-    """Return a JPEG frame with an error message."""
-    img = np.zeros((480, 640, 3), dtype=np.uint8)
-    cv2.putText(img, "WEBCAM NOT FOUND", (120, 220), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 200), 3)
-    cv2.putText(img, "Check your camera connection", (90, 270), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (100, 100, 200), 2)
-    _, buf = cv2.imencode(".jpg", img)
-    return buf.tobytes()
-
-
-def _generate_mjpeg():
-    while True:
-        if not WEBCAM_OK:
-            frame_bytes = _error_frame()
-        else:
-            with _cam_lock:
-                ret, frame = _cap.read()
-            if not ret:
-                frame_bytes = _error_frame()
-            else:
-                _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
-                frame_bytes = buf.tobytes()
-        yield (
-            b"--frame\r\n"
-            b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
-        )
-        time.sleep(0.04)  # ~25 fps
+def _decode_data_url(data_url: str) -> Optional[np.ndarray]:
+    """Decode a browser canvas data URL (or raw base64 jpeg) into a BGR frame."""
+    try:
+        data = data_url.split(",", 1)[1] if "," in data_url else data_url
+        raw = base64.b64decode(data)
+        arr = np.frombuffer(raw, np.uint8)
+        return cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    except Exception as e:
+        print(f"[capture] decode error: {e}")
+        return None
 
 
 def _np(x):
@@ -155,8 +138,6 @@ def _detect_objects(frame: np.ndarray) -> list[str]:
         return []
 
 
-import re
-
 _STAGE_DIR = re.compile(r"\*[^*]*\*")  # *harmonica wails* style asides
 
 
@@ -186,14 +167,6 @@ def serve_ui():
     return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
 
 
-@app.get("/video_feed")
-def video_feed():
-    return StreamingResponse(
-        _generate_mjpeg(),
-        media_type="multipart/x-mixed-replace; boundary=frame",
-    )
-
-
 @app.get("/new_show")
 def new_show():
     genre = random.choice(GENRES)
@@ -208,16 +181,18 @@ def new_show():
     return {"genre": genre, "theme": theme}
 
 
+class CaptureRequest(BaseModel):
+    image: Optional[str] = None  # data URL grabbed from the browser webcam
+
+
 @app.post("/capture")
-def capture():
-    if not WEBCAM_OK:
-        objects = [random.choice(FALLBACK_OBJECTS)]
-        return {"objects": objects}
-    with _cam_lock:
-        ret, frame = _cap.read()
-    if not ret:
-        return {"objects": [random.choice(FALLBACK_OBJECTS)]}
-    detected = _detect_objects(frame)
+def capture(req: CaptureRequest):
+    detected: list[str] = []
+    if req.image:
+        frame = _decode_data_url(req.image)
+        if frame is not None:
+            detected = _detect_objects(frame)
+    # If no frame / nothing detected, the show goes on with a funny fallback.
     if not detected:
         detected = [random.choice(FALLBACK_OBJECTS)]
     return {"objects": detected}

@@ -68,7 +68,24 @@
     height: 100%;
     object-fit: cover;
     display: block;
+    transform: scaleX(-1);   /* mirror — feels natural, like looking in a mirror */
+    background: #000;
   }
+
+  #cam-error {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 20px;
+    color: #c98a8a;
+    font-size: 1rem;
+    background: #1a0808;
+  }
+  #stage-window.cam-failed #cam-error { display: flex; }
+  #stage-window.cam-failed #stage-video { display: none; }
 
   /* Spotlight glow overlay on the video */
   #stage-window::after {
@@ -371,10 +388,12 @@
   <div id="curtain-left"></div>
   <div id="curtain-right"></div>
 
-  <!-- Stage video (MJPEG) -->
+  <!-- Stage video (browser webcam via getUserMedia) -->
   <div id="stage-window">
-    <img id="stage-video" src="" alt="stage">
+    <video id="stage-video" autoplay muted playsinline></video>
+    <div id="cam-error">📷 Camera unavailable — allow camera access and reload.</div>
   </div>
+  <canvas id="capture-canvas" style="display:none"></canvas>
 
   <!-- Landing -->
   <div id="landing">
@@ -465,6 +484,41 @@ const $btnRestart = document.getElementById('btn-restart');
 let genre = '', theme = '', storyText = '';
 let totalTimer = null, secondsLeft = 90;
 let forceEnding = false;
+let mediaStream = null;
+const $captureCanvas = document.getElementById('capture-canvas');
+
+// ── Camera (browser-owned via getUserMedia) ────────────────────────────────────
+async function initCamera() {
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+      audio: false,
+    });
+    $stageVideo.srcObject = mediaStream;
+    $stageWin.classList.remove('cam-failed');
+    return true;
+  } catch (e) {
+    console.error('camera error', e);
+    $stageWin.classList.add('cam-failed');
+    return false;
+  }
+}
+
+// Grab the current webcam frame as a JPEG data URL (or null if no camera).
+function grabFrame() {
+  if (!mediaStream || !$stageVideo.videoWidth) return null;
+  $captureCanvas.width  = $stageVideo.videoWidth;
+  $captureCanvas.height = $stageVideo.videoHeight;
+  $captureCanvas.getContext('2d').drawImage($stageVideo, 0, 0);
+  return $captureCanvas.toDataURL('image/jpeg', 0.8);
+}
+
+function stopCamera() {
+  if (mediaStream) {
+    mediaStream.getTracks().forEach(t => t.stop());
+    mediaStream = null;
+  }
+}
 
 function formatTime(s) {
   return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
@@ -501,9 +555,9 @@ async function startShow() {
   forceEnding = false;
   $landing.classList.add('hidden');
 
-  // Open webcam stream
-  $stageVideo.src = '/video_feed';
+  // Open the browser webcam (prompts for permission on first run)
   $stageWin.style.display = 'block';
+  await initCamera();
 
   // Open curtains
   $container.classList.add('curtains-open');
@@ -579,8 +633,9 @@ async function objectBeat(index) {
   }
   $beatPrompt.classList.remove('visible');
 
-  // Capture
-  const cap = await api('POST', '/capture', {});
+  // Capture the current webcam frame and send it for detection
+  const frame = grabFrame();
+  const cap = await api('POST', '/capture', { image: frame });
   const objects = cap.objects || ['a mysterious object'];
   const objectStr = objects.join(', ');
 
@@ -634,6 +689,7 @@ async function doEnding() {
   await delay(1800);
 
   // THE END
+  stopCamera();
   $stageWin.style.display = 'none';
   $theEnd.classList.add('visible');
   $btnRestart.style.display = 'inline-block';
