@@ -72,6 +72,29 @@
     background: #000;
   }
 
+  /* Scanning frame shown while "reading" the object */
+  #reading-frame {
+    position: absolute;
+    inset: 12% 18%;
+    border: 2px dashed rgba(201,168,76,0.9);
+    border-radius: 6px;
+    display: none;
+    z-index: 3;
+    box-shadow: 0 0 24px rgba(201,168,76,0.25) inset;
+    animation: scanpulse 0.8s ease-in-out infinite alternate;
+  }
+  #reading-frame::after {
+    content: '🔍 Leyendo…';
+    position: absolute;
+    top: -28px; left: 50%; transform: translateX(-50%);
+    color: var(--gold);
+    font-family: 'Playfair Display', serif;
+    font-size: 0.95rem;
+    white-space: nowrap;
+  }
+  #stage-window.reading #reading-frame { display: block; }
+  @keyframes scanpulse { from { opacity: 0.45; } to { opacity: 1; } }
+
   #cam-error {
     position: absolute;
     inset: 0;
@@ -421,6 +444,7 @@
   <!-- Stage video (browser webcam via getUserMedia) -->
   <div id="stage-window">
     <video id="stage-video" autoplay muted playsinline></video>
+    <div id="reading-frame"></div>
     <div id="cam-error">📷 Cámara no disponible — permite el acceso a la cámara y recarga.</div>
   </div>
   <canvas id="capture-canvas" style="display:none"></canvas>
@@ -469,6 +493,40 @@
 </div>
 
 <script>
+// ── Canned laughter (cheap synthesized sitcom laugh track) ──────────────────────
+let audioCtx = null;
+function initAudio() {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  } catch (e) { /* no audio, no problem */ }
+}
+// A deliberately cheesy "ja-ja-ja-ja" laugh sting built from detuned oscillators.
+function playLaugh() {
+  if (!audioCtx) return;
+  const ctx = audioCtx, t0 = ctx.currentTime;
+  const beats = [0, 0.14, 0.28, 0.42, 0.58, 0.74];           // each "ja"
+  beats.forEach((bt, i) => {
+    [0, 7, -6].forEach(detune => {                            // 3 detuned voices = tiny "crowd"
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sawtooth';
+      const base = 300 - i * 14 + (Math.sin(i) * 8);          // descending, wobbly = cutre
+      o.frequency.setValueAtTime(base, t0 + bt);
+      o.frequency.exponentialRampToValueAtTime(base * 0.78, t0 + bt + 0.1);
+      o.detune.value = detune;
+      g.gain.setValueAtTime(0.0001, t0 + bt);
+      g.gain.exponentialRampToValueAtTime(0.12, t0 + bt + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + bt + 0.13);
+      o.connect(g).connect(ctx.destination);
+      o.start(t0 + bt); o.stop(t0 + bt + 0.14);
+    });
+  });
+}
+function laughAndWait() {
+  playLaugh();
+  return delay(950);
+}
+
 // ── TTS ─────────────────────────────────────────────────────────────────────
 const synth = window.speechSynthesis;
 
@@ -518,7 +576,7 @@ const $btnStart   = document.getElementById('btn-start');
 const $btnRestart = document.getElementById('btn-restart');
 
 // ── State ────────────────────────────────────────────────────────────────────
-const OBJECT_ROUNDS = 3;          // how many objects the show asks for
+const OBJECT_ROUNDS = 5;          // how many objects the show asks for
 let genre = '', theme = '', storyText = '';
 let totalTimer = null, secondsLeft = 180;
 let forceEnding = false;
@@ -594,6 +652,7 @@ $btnRestart.addEventListener('click', () => location.reload());
 async function startShow() {
   forceEnding = false;
   $landing.classList.add('hidden');
+  initAudio();   // unlock Web Audio on the user gesture (for the laugh track)
 
   // Open the browser webcam (prompts for permission on first run)
   $stageWin.style.display = 'block';
@@ -653,37 +712,61 @@ async function narrate(opts, fallback) {
   }
 }
 
+// Scan the webcam for ~2.5s, grabbing several frames, and keep the first REAL
+// detection (gives the user time to hold the object steady and frame it).
+async function readObject() {
+  $stageWin.classList.add('reading');
+  subtitle('🔍 Leyendo el objeto…');
+  let objectStr = null;
+  const tries = 6;                       // ~6 frames over ~2.4s
+  for (let i = 0; i < tries; i++) {
+    const frame = grabFrame();
+    try {
+      const cap = await api('POST', '/capture', { image: frame });
+      if (cap.detected && cap.objects && cap.objects.length) {
+        objectStr = cap.objects.join(' y ');
+        break;                           // got a real read — stop early
+      }
+      // remember a fallback in case nothing real shows up
+      if (!objectStr && cap.objects && cap.objects.length) objectStr = cap.objects.join(' y ');
+    } catch (e) { /* keep trying */ }
+    await delay(400);
+    if (forceEnding) break;
+  }
+  $stageWin.classList.remove('reading');
+  return objectStr || 'un objeto misterioso';
+}
+
 async function weaveBeat(index) {
-  // 1) Quick countdown — bring an object
+  // 1) Countdown — bring an object (a beat longer so there's time to grab it)
   $beatPrompt.classList.add('visible');
-  for (let n = 2; n >= 1; n--) {
+  for (let n = 3; n >= 1; n--) {
     $beatCd.textContent = n;
     subtitle(`¡Enseña un objeto a la cámara en… ${n}!`);
-    await delay(900);
+    await delay(1000);
     if (forceEnding) { $beatPrompt.classList.remove('visible'); return; }
   }
   $beatPrompt.classList.remove('visible');
 
-  // 2) Capture + detect the object held up to the camera
-  const frame = grabFrame();
-  const cap = await api('POST', '/capture', { image: frame });
-  const objects = cap.objects || ['un objeto misterioso'];
-  const objectStr = objects.join(' y ');
+  // 2) "Read" the object — scan several frames and keep the real detection
+  const objectStr = await readObject();
+  if (forceEnding) return;
 
-  // Object card (brief)
+  // Object card — pretend to announce what it just read
   $objectName.textContent = objectStr;
   $objectCard.classList.add('visible');
-  subtitle(`¡${objectStr}!`);
-  await delay(1200);
+  subtitle(`Veo… ¡${objectStr}!`);
+  await delay(1300);
   $objectCard.classList.remove('visible');
 
-  // 3) Weave the object into the running story
+  // 3) Weave the object into the running story, then a cheap laugh
   const line = await narrate(
     { mode: 'weave', story_so_far: storyText.trim(), new_object: objectStr },
     `Y de pronto apareció ${objectStr}, como quien no quiere la cosa.`);
   subtitle(line);
   storyText += ' ' + line;
   await speakAndWait(line);
+  await laughAndWait();
 }
 
 async function doEnding() {
@@ -695,6 +778,7 @@ async function doEnding() {
     '¡Y colorín colorado, este disparate se ha acabado! ¡Telón!');
   subtitle(line);
   await speakAndWait(line);
+  await laughAndWait();
 
   // Close curtains
   $container.classList.remove('curtains-open');

@@ -259,10 +259,11 @@ def capture(req: CaptureRequest):
         frame = _decode_data_url(req.image)
         if frame is not None:
             detected = _detect_objects(frame)
-    # If no frame / nothing detected, the show goes on with a funny fallback.
-    if not detected:
-        detected = [random.choice(FALLBACK_OBJECTS)]
-    return {"objects": detected}
+    if detected:
+        return {"objects": detected, "detected": True}
+    # Nothing real this frame — the frontend keeps scanning, or uses the
+    # funny fallback once the reading window is over.
+    return {"objects": [random.choice(FALLBACK_OBJECTS)], "detected": False}
 
 
 class NarrateRequest(BaseModel):
