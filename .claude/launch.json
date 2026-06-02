@@ -1,0 +1,13 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "absurd-theater",
+      "runtimeExecutable": "/bin/bash",
+      "runtimeArgs": ["start.sh"],
+      "port": 8010,
+      "autoPort": true,
+      "cwd": "/Users/diegogarcimartinrey/claude/welcometothetheatre"
+    }
+  ]
+}
