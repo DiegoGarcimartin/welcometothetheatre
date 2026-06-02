@@ -118,21 +118,26 @@ COCO_ES = {
 }
 
 NARRATOR_SYSTEM = (
-    "Eres un narrador de teatro grandilocuente y omnisciente que hace una voz en off en directo. "
-    "Tratas objetos cotidianos y aburridos como si fueran elementos dramáticos épicos y trascendentales. "
-    "Te comprometes AL MÁXIMO con el género elegido, pero la gracia está en lo DISPARATADO y CÓMICO: "
-    "exageras hasta el ridículo, eres absurdo, surrealista y muy divertido. "
-    "Es humor luminoso y desternillante, NUNCA oscuro, triste, deprimente ni dramático de verdad. "
-    "Nada de muerte, sangre, sufrimiento real ni tristeza: todo es ridículo y para reírse. "
-    "Escribe en español de España (castellano), con naturalidad y chispa. "
-    "Máximo 2-3 frases, 45 palabras como mucho. Mantén la continuidad con la historia. Apto para todos los públicos. "
-    "Devuelve SOLO la narración hablada en prosa: sin acotaciones, sin efectos de sonido, "
-    "sin asteriscos, sin markdown, sin saltos de línea, sin etiquetas."
+    "Eres un narrador de teatro cómico que hace una voz en off en directo. Tu único objetivo es DAR RISA. "
+    "La técnica es el BATHOS: montas una frase épica y solemne y la revientas de golpe con una realidad cutre, "
+    "doméstica y española. Ejemplo del mecanismo: 'Los dioses del Olimpo contuvieron el aliento ante el héroe… "
+    "que resultó ser una fregona del Mercadona con dos años de antigüedad.' Ese choque entre lo grandioso y lo "
+    "ridículamente normal es TODA la gracia. "
+    "Reglas de comedia: frases CORTAS y con ritmo; remate cómico al final (lo más fuerte, lo último); "
+    "detalles concretos y absurdos (marcas, precios, cuñados, el Lidl, la suegra, la ITV, un Cola Cao) mejor que "
+    "metáforas bonitas; sé inesperado, anticlímax, exageración tonta. Nada de prosa florida ni poética: si suena "
+    "elegante pero no hace gracia, has fallado. "
+    "Mantente en el género elegido, pero la comedia manda sobre el género. Humor blanco y luminoso, "
+    "NUNCA oscuro, triste ni dramático de verdad; nada de muerte, sangre ni sufrimiento. "
+    "Español de España, coloquial y castizo (vale 'madre mía', 'menudo percal', 'ni tan mal'). "
+    "Máximo 2-3 frases, 40 palabras. Continúa la historia. Apto para todos los públicos. "
+    "Devuelve SOLO la narración hablada: sin acotaciones, sin efectos de sonido, sin asteriscos, sin markdown, "
+    "sin saltos de línea, sin etiquetas."
 )
 
 CANNED_FALLBACK = (
-    "¡Y entonces el destino, con su habitual sentido del humor, lo cambió todo! "
-    "Nadie lo vio venir, ni siquiera el apuntador. La función, queridos míos, continúa."
+    "¡Y entonces, contra todo pronóstico, no pasó absolutamente nada! "
+    "El público aguantó la respiración; el apuntador miró el reloj. La función, queridos míos, continúa."
 )
 
 app = FastAPI()
@@ -270,30 +275,60 @@ class NarrateRequest(BaseModel):
     genre: str
     theme: str
     story_so_far: str
-    new_object: str
-    is_ending: bool = False
+    new_object: str = ""
+    mode: str = "reveal"          # "intro" | "setup" | "reveal" | "ending"
+    is_ending: bool = False       # back-compat; equivalent to mode="ending"
+
+
+_SETUP_FALLBACKS = [
+    "Y entonces, en mitad de la escena, el protagonista sacó muy despacio su…",
+    "El silencio era absoluto cuando, de pronto, apareció sobre las tablas…",
+    "Nadie esperaba lo que el héroe llevaba escondido bajo la capa:…",
+]
+_REVEAL_FALLBACK = "…¡y resultó ser justo eso! Madre mía, qué giro. El público no daba crédito."
 
 
 @app.post("/narrate")
 def narrate(req: NarrateRequest):
+    mode = "ending" if req.is_ending else req.mode
     try:
-        if req.is_ending:
+        if mode == "ending":
             prompt = (
                 f"Género: {req.genre}. Obra: «{req.theme}».\n"
                 f"Historia hasta ahora: {req.story_so_far}\n"
-                "Cierra la función con un FINAL apoteósico de 2-3 frases, grandilocuente y "
-                "desternillante, con un giro absurdo. Que dé ganas de aplaudir y reír. Máximo 45 palabras."
+                "Cierra la función con un FINAL de 2 frases: resuelve el cuento de forma sencilla y "
+                "ridícula, con remate cómico por bathos. Español de España. Máximo 35 palabras."
             )
-        else:
+        elif mode == "intro":
+            prompt = (
+                f"Género: {req.genre}. Obra: «{req.theme}».\n"
+                "Abre la función con UNA frase tipo cuento ('Érase una vez…') que presente a un "
+                "protagonista sencillo y la situación, en clave de comedia. Español de España. Máximo 25 palabras."
+            )
+        elif mode == "setup":
             prompt = (
                 f"Género: {req.genre}. Obra: «{req.theme}».\n"
                 f"Historia hasta ahora: {req.story_so_far}\n"
-                f"Ha entrado en escena un nuevo objeto: {req.new_object}.\n"
-                "Escribe 2-3 frases tratando ese objeto como algo épico y trascendental, "
-                "exagerando hasta lo ridículo de forma divertidísima. Sube el dramatismo de broma. Máximo 45 palabras."
+                "Continúa la historia con UNA frase corta y sencilla que termine JUSTO antes de un objeto, "
+                "dejándola a medias con puntos suspensivos, para que el público traiga un objeto real. "
+                "Ejemplos de formato: 'El príncipe salió al galope montado en su…', "
+                "'La princesa abrió el cofre del tesoro y dentro había…', "
+                "'El malvado hechicero alzó por encima de su cabeza su temible…'. "
+                "NO nombres tú ningún objeto. Termina obligatoriamente en '…'. Español de España. Máximo 18 palabras."
+            )
+        else:  # reveal
+            prompt = (
+                f"Género: {req.genre}. Obra: «{req.theme}».\n"
+                f"La frase quedó a medias así: «{req.story_so_far}»\n"
+                f"El público ha traído este objeto real: {req.new_object}.\n"
+                f"Completa la frase metiendo «{req.new_object}» como si fuera lo más normal del mundo, "
+                "y añade un remate cómico por lo absurdo del objeto en ese cuento (bathos/anticlímax). "
+                "Empieza enlazando con la frase a medias. Español de España. Máximo 30 palabras."
             )
         line = _llm(prompt)
     except Exception as e:
         print(f"[narrate] LLM error: {e}")
-        line = CANNED_FALLBACK
+        line = (random.choice(_SETUP_FALLBACKS) if mode == "setup"
+                else _REVEAL_FALLBACK if mode == "reveal"
+                else CANNED_FALLBACK)
     return {"line": line}

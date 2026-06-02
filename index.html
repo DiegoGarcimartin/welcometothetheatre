@@ -584,7 +584,9 @@ function formatTime(s) {
 }
 
 function startMasterTimer() {
-  secondsLeft = 90;
+  // Generous safety cap — the show ends naturally after 3 rounds; this only
+  // forces a close if an LLM/TTS call hangs, so it never cuts a joke short.
+  secondsLeft = 180;
   $timer.style.display = '';
   $timerVal.textContent = formatTime(secondsLeft);
   totalTimer = setInterval(() => {
@@ -642,104 +644,85 @@ async function startShow() {
 
   startMasterTimer();
 
-  // Narrator intro
-  await narratorBeat(
-    `Open with 2-3 lines introducing a ${genre} play titled "${theme}". Set the scene dramatically. Max 45 words.`,
-    false,
-    true
-  );
+  // Intro: "Érase una vez…" sets up a simple story
+  const intro = await narrate({ mode: 'intro', story_so_far: '' },
+                              '¡Érase una vez una función a punto de empezar!');
+  subtitle(intro);
+  storyText = intro;
+  await speakAndWait(intro);
 
-  if (forceEnding) { await doEnding(); return; }
-
-  // Three object beats
+  // Three Mad-Libs rounds: setup (half sentence) → object → reveal (completion)
   for (let i = 0; i < 3; i++) {
     if (forceEnding) break;
-    await objectBeat(i);
-    if (forceEnding) break;
+    await madLibsBeat();
   }
 
   await doEnding();
 }
 
-async function narratorBeat(prompt, isEnding, isIntro) {
-  let line;
-  if (isIntro) {
-    // Intro is a direct prompt sent as a narrate call with no object
-    try {
-      const r = await api('POST', '/narrate', {
-        genre, theme,
-        story_so_far: '',
-        new_object: 'el escenario vacío (es la apertura de la función)',
-        is_ending: false,
-      });
-      line = r.line;
-    } catch(e) {
-      line = '¡Se alza el telón sobre un mundo que tiembla al borde de lo ridículo!';
-    }
+// One narrate call. opts = {mode, story_so_far, new_object?}. Returns the line.
+async function narrate(opts, fallback) {
+  try {
+    const r = await api('POST', '/narrate', {
+      genre, theme,
+      story_so_far: opts.story_so_far || '',
+      new_object: opts.new_object || '',
+      mode: opts.mode,
+    });
+    return r.line || fallback;
+  } catch (e) {
+    return fallback;
   }
-  subtitle(line || '…');
-  await speakAndWait(line);
-  storyText += ' ' + (line || '');
 }
 
-async function objectBeat(index) {
-  // Countdown
+async function madLibsBeat() {
+  // 1) SETUP — narrator builds a sentence that stops right before the object
+  const setup = await narrate(
+    { mode: 'setup', story_so_far: storyText.trim() },
+    'Y entonces el protagonista sacó muy despacio de su bolsillo…');
+  subtitle(setup);
+  await speakAndWait(setup);
+  if (forceEnding) return;
+
+  // 2) Countdown — bring an object
   $beatPrompt.classList.add('visible');
   for (let n = 3; n >= 1; n--) {
     $beatCd.textContent = n;
-    subtitle(`Trae algo al escenario en… ${n}`);
+    subtitle(`¡Enseña algo a la cámara en… ${n}!`);
     await delay(1000);
     if (forceEnding) { $beatPrompt.classList.remove('visible'); return; }
   }
   $beatPrompt.classList.remove('visible');
 
-  // Capture the current webcam frame and send it for detection
+  // 3) Capture + detect the object held up to the camera
   const frame = grabFrame();
   const cap = await api('POST', '/capture', { image: frame });
   const objects = cap.objects || ['un objeto misterioso'];
-  const objectStr = objects.join(', ');
+  const objectStr = objects.join(' y ');
 
   // Object card
   $objectName.textContent = objectStr;
   $objectCard.classList.add('visible');
-  subtitle(`Entra en escena: ${objectStr}`);
-  await delay(2200);
+  subtitle(`¡${objectStr}!`);
+  await delay(1600);
   $objectCard.classList.remove('visible');
 
-  // Narrate
-  let line;
-  try {
-    const r = await api('POST', '/narrate', {
-      genre, theme,
-      story_so_far: storyText.trim(),
-      new_object: objectStr,
-      is_ending: false,
-    });
-    line = r.line;
-  } catch(e) {
-    line = '¡Y entonces el destino, con su retranca habitual, plantó en escena semejante prodigio!';
-  }
-  subtitle(line);
-  storyText += ' ' + line;
-  await speakAndWait(line);
+  // 4) REVEAL — complete the half sentence with the detected object
+  const reveal = await narrate(
+    { mode: 'reveal', story_so_far: setup, new_object: objectStr },
+    `…¡${objectStr}! Y nadie supo muy bien qué decir.`);
+  subtitle(reveal);
+  storyText += ' ' + setup + ' ' + reveal;
+  await speakAndWait(reveal);
 }
 
 async function doEnding() {
   clearInterval(totalTimer);
 
   // Final narration
-  let line;
-  try {
-    const r = await api('POST', '/narrate', {
-      genre, theme,
-      story_so_far: storyText.trim(),
-      new_object: 'the end of all things',
-      is_ending: true,
-    });
-    line = r.line;
-  } catch(e) {
-    line = '¡Y así cayó el telón sobre un mundo cambiado para siempre por semejante disparate! ¡Fin!';
-  }
+  const line = await narrate(
+    { mode: 'ending', story_so_far: storyText.trim() },
+    '¡Y colorín colorado, este disparate se ha acabado! ¡Telón!');
   subtitle(line);
   await speakAndWait(line);
 
