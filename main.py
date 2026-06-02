@@ -4,11 +4,12 @@ import base64
 import random
 import numpy as np
 import cv2
+import requests
 from pathlib import Path
 from typing import Optional
 from PIL import Image
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse, FileResponse, Response
 from pydantic import BaseModel
 import anthropic
 
@@ -26,6 +27,21 @@ if not _API_KEY:
     print("[startup] WARNING: ANTHROPIC_API_KEY not set — narrator will use "
           "canned fallback lines. Copy .env.example to .env and add your key.")
 client = anthropic.Anthropic(api_key=_API_KEY)
+
+# ── Cloud TTS (ElevenLabs) — optional, swappable ──────────────────────────────
+# If ELEVENLABS_API_KEY is set, narration is voiced by ElevenLabs (real voices);
+# otherwise the browser's built-in speechSynthesis is used. The voice is fully
+# configurable via ELEVENLABS_VOICE_ID — set it to any voice you are entitled to
+# use. (Default is a stock multilingual voice; do NOT clone a real person's voice
+# without authorisation — that violates ElevenLabs' terms.)
+ELEVEN_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
+ELEVEN_VOICE = os.environ.get("ELEVENLABS_VOICE_ID", "")  # set your own voice id
+ELEVEN_MODEL = os.environ.get("ELEVENLABS_MODEL", "eleven_multilingual_v2")
+if ELEVEN_KEY:
+    print(f"[startup] ElevenLabs TTS enabled (voice={ELEVEN_VOICE or 'default'}).")
+else:
+    print("[startup] ElevenLabs not configured — using browser voice. "
+          "Set ELEVENLABS_API_KEY (+ optional ELEVENLABS_VOICE_ID) in .env to enable.")
 
 # ── Startup: load LibreYOLO model once ────────────────────────────────────────
 # Model weights — try a repo-local copy first, then known local paths,
@@ -223,6 +239,44 @@ def serve_ui():
 @app.get("/risas.mp3")
 def laugh_track():
     return FileResponse(_HERE / "assets" / "risas.mp3", media_type="audio/mpeg")
+
+
+@app.get("/config")
+def config():
+    # Tells the frontend whether to use cloud TTS or the browser voice.
+    return {"cloud_tts": bool(ELEVEN_KEY)}
+
+
+class TTSRequest(BaseModel):
+    text: str
+
+
+@app.post("/tts")
+def tts(req: TTSRequest):
+    """Voice a line with ElevenLabs and return MP3 audio. 503 if not configured
+    so the frontend can fall back to the browser voice."""
+    if not ELEVEN_KEY or not ELEVEN_VOICE:
+        raise HTTPException(status_code=503, detail="ElevenLabs not configured")
+    try:
+        r = requests.post(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_VOICE}",
+            headers={
+                "xi-api-key": ELEVEN_KEY,
+                "accept": "audio/mpeg",
+                "content-type": "application/json",
+            },
+            json={
+                "text": req.text,
+                "model_id": ELEVEN_MODEL,
+                "voice_settings": {"stability": 0.4, "similarity_boost": 0.8, "style": 0.6},
+            },
+            timeout=20,
+        )
+        r.raise_for_status()
+        return Response(content=r.content, media_type="audio/mpeg")
+    except Exception as e:
+        print(f"[tts] ElevenLabs error: {e}")
+        raise HTTPException(status_code=502, detail="TTS failed")
 
 
 @app.get("/genres")

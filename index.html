@@ -524,8 +524,41 @@ function laughAndWait() {
 
 // ── TTS ─────────────────────────────────────────────────────────────────────
 const synth = window.speechSynthesis;
+let useCloudTTS = false;          // set from /config on load
+const ttsAudio = new Audio();     // plays ElevenLabs clips
+ttsAudio.volume = 1.0;
 
+// speak(): cloud TTS (ElevenLabs) if enabled, else the browser voice. The whole
+// function is isolated so the engine can be swapped without touching the show.
 function speak(text, onDone) {
+  if (!text) { if (onDone) onDone(); return; }
+  if (useCloudTTS) {
+    speakCloud(text, onDone);
+  } else {
+    speakBrowser(text, onDone);
+  }
+}
+
+async function speakCloud(text, onDone) {
+  try {
+    const r = await fetch('/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!r.ok) throw new Error('tts ' + r.status);
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    ttsAudio.src = url;
+    ttsAudio.onended = () => { URL.revokeObjectURL(url); if (onDone) onDone(); };
+    ttsAudio.onerror = () => { URL.revokeObjectURL(url); speakBrowser(text, onDone); };
+    await ttsAudio.play();
+  } catch (e) {
+    speakBrowser(text, onDone);   // fall back to the browser voice on any error
+  }
+}
+
+function speakBrowser(text, onDone) {
   synth.cancel();
   if (!text) { if (onDone) onDone(); return; }
   const utt = new SpeechSynthesisUtterance(text);
@@ -799,8 +832,15 @@ function speakAndWait(text) {
   return new Promise(resolve => speak(text, resolve));
 }
 
-// Preload voices
-window.addEventListener('load', () => { synth.getVoices(); });
+// Preload voices + check whether cloud TTS (ElevenLabs) is configured
+window.addEventListener('load', async () => {
+  synth.getVoices();
+  try {
+    const cfg = await (await fetch('/config')).json();
+    useCloudTTS = !!cfg.cloud_tts;
+    console.log('[tts]', useCloudTTS ? 'ElevenLabs (cloud)' : 'browser voice');
+  } catch (e) { /* default: browser voice */ }
+});
 </script>
 </body>
 </html>
