@@ -501,12 +501,16 @@ laughAudio.volume = 0.7;
 // Chiquito clips (real soundboard audio) used to punctuate the show.
 const CHIQUITO_OPENER = '/assets/alataque.mp3';            // ¡al ataque! (kick-off)
 const CHIQUITO_CLOSER = '/assets/hasta-luego-lucas.mp3';   // ¡hasta luego, Lucas! (finale)
-const CHIQUITO_STINGS = [                                  // cycled after each reveal
+const CHIQUITO_STINGS = [                                  // cycled through the show
   '/assets/grito.mp3',
   '/assets/amatoma.mp3',
   '/assets/felicidades.mp3',
   '/assets/suerte.mp3',
   '/assets/no-pelearse.mp3',
+  '/assets/cobarde.mp3',
+  '/assets/chiste.mp3',
+  '/assets/bonanza.mp3',
+  '/assets/animales-bravidos.mp3',
 ];
 // preload them all
 [CHIQUITO_OPENER, CHIQUITO_CLOSER, ...CHIQUITO_STINGS].forEach(src => { const a = new Audio(src); a.preload = 'auto'; });
