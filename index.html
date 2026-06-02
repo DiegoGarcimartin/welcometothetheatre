@@ -493,33 +493,58 @@
 </div>
 
 <script>
-// ── Canned laughter (real cheesy laugh-track clip) ──────────────────────────────
+// ── Sound stings: canned laughs + real Chiquito soundboard clips ────────────────
 const laughAudio = new Audio('/risas.mp3');
 laughAudio.preload = 'auto';
 laughAudio.volume = 0.7;
 
+// Chiquito clips (real soundboard audio) used to punctuate the show.
+const CHIQUITO_OPENER = '/assets/alataque.mp3';            // ¡al ataque! (kick-off)
+const CHIQUITO_CLOSER = '/assets/hasta-luego-lucas.mp3';   // ¡hasta luego, Lucas! (finale)
+const CHIQUITO_STINGS = [                                  // cycled after each reveal
+  '/assets/grito.mp3',
+  '/assets/amatoma.mp3',
+  '/assets/felicidades.mp3',
+  '/assets/suerte.mp3',
+  '/assets/no-pelearse.mp3',
+];
+// preload them all
+[CHIQUITO_OPENER, CHIQUITO_CLOSER, ...CHIQUITO_STINGS].forEach(src => { const a = new Audio(src); a.preload = 'auto'; });
+
 function initAudio() {
-  // Unlock audio on the user gesture: play muted for a tick, then reset.
+  // Unlock audio on the user gesture (play muted for a tick, then reset).
   try {
     laughAudio.muted = true;
     laughAudio.play().then(() => {
-      laughAudio.pause();
-      laughAudio.currentTime = 0;
-      laughAudio.muted = false;
+      laughAudio.pause(); laughAudio.currentTime = 0; laughAudio.muted = false;
     }).catch(() => { laughAudio.muted = false; });
   } catch (e) { /* no audio, no problem */ }
 }
 
-// Play the laugh clip (capped to ~2.5s so it doesn't drag), then resolve.
+// Play an mp3 and resolve when it finishes (or after a safety timeout).
+function playClip(src, maxMs = 4000) {
+  return new Promise(resolve => {
+    try {
+      const a = new Audio(src);
+      a.volume = 1.0;
+      a.onended = resolve;
+      a.onerror = resolve;
+      const p = a.play();
+      if (p && p.catch) p.catch(resolve);
+      setTimeout(resolve, maxMs);
+    } catch (e) { resolve(); }
+  });
+}
+
+// Play the canned laugh (capped so a long clip doesn't drag), then resolve.
 function laughAndWait() {
   try {
     laughAudio.currentTime = 0;
     const p = laughAudio.play();
     if (p && p.catch) p.catch(() => {});
-    // stop it after a beat so a long clip doesn't stall the show
-    setTimeout(() => { try { laughAudio.pause(); laughAudio.currentTime = 0; } catch (e) {} }, 2500);
+    setTimeout(() => { try { laughAudio.pause(); laughAudio.currentTime = 0; } catch (e) {} }, 2200);
   } catch (e) { /* ignore */ }
-  return delay(2000);
+  return delay(1800);
 }
 
 // ── TTS ─────────────────────────────────────────────────────────────────────
@@ -711,6 +736,9 @@ async function startShow() {
 
   startMasterTimer();
 
+  // Chiquito kicks off the show: "¡al ataque!"
+  await playClip(CHIQUITO_OPENER);
+
   // Intro: "Érase una vez…" sets up a simple protagonist
   const intro = await narrate({ mode: 'intro', story_so_far: '' },
                               '¡Érase una vez una función a punto de empezar!');
@@ -796,6 +824,8 @@ async function weaveBeat(index) {
   subtitle(line);
   storyText += ' ' + line;
   await speakAndWait(line);
+  // Chiquito sting (a different one each round) + canned laughter
+  await playClip(CHIQUITO_STINGS[index % CHIQUITO_STINGS.length]);
   await laughAndWait();
 }
 
@@ -809,6 +839,8 @@ async function doEnding() {
   subtitle(line);
   await speakAndWait(line);
   await laughAndWait();
+  // Chiquito says goodbye: "¡hasta luego, Lucas!"
+  await playClip(CHIQUITO_CLOSER);
 
   // Close curtains
   $container.classList.remove('curtains-open');

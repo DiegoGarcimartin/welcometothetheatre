@@ -10,6 +10,7 @@ from typing import Optional
 from PIL import Image
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import anthropic
 
@@ -248,6 +249,10 @@ def serve_ui():
 @app.get("/risas.mp3")
 def laugh_track():
     return FileResponse(_HERE / "assets" / "risas.mp3", media_type="audio/mpeg")
+
+
+# Serve the Chiquito soundboard clips (and any other audio) from /assets/*
+app.mount("/assets", StaticFiles(directory=str(_HERE / "assets")), name="assets")
 
 
 @app.get("/config")
