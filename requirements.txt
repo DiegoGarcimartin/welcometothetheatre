@@ -3,4 +3,5 @@ uvicorn
 opencv-python
 anthropic
 python-multipart
+python-dotenv
 libreyolo

@@ -27,17 +27,21 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 
 # install deps (this pulls torch via libreyolo — a few hundred MB)
 pip install -r requirements.txt
+
+# set your Anthropic key (get the team key from Diego — Slack / 1Password)
+cp .env.example .env
+# then edit .env and paste the key after ANTHROPIC_API_KEY=
 ```
 
-> The first run downloads the `LibreYOLO9t.pt` weights automatically. To avoid
-> that, drop a copy at `weights/LibreYOLO9t.pt` in the repo.
+> The model weights (`weights/LibreYOLO9t.pt`) ship in the repo, so there's
+> **no download** on first run. The narrator needs the key in `.env`; without
+> it the show still runs but uses canned fallback lines.
 
 ## Run
 
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-..."   # required for the narrator
-uvicorn main:app --port 8010
-# or: ./start.sh
+./start.sh
+# or: uvicorn main:app --port 8010
 ```
 
 Open **http://localhost:8010** and click **Start the Show**.

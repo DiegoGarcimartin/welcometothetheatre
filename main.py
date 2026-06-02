@@ -11,8 +11,20 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 import anthropic
 
+# Load a local .env if present (so each teammate just drops their key there).
+try:
+    from dotenv import load_dotenv
+    # override=True so a populated .env wins over an empty/stale shell var.
+    load_dotenv(override=True)
+except ImportError:
+    pass
+
 # ── Startup: LLM client ───────────────────────────────────────────────────────
-client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+if not _API_KEY:
+    print("[startup] WARNING: ANTHROPIC_API_KEY not set — narrator will use "
+          "canned fallback lines. Copy .env.example to .env and add your key.")
+client = anthropic.Anthropic(api_key=_API_KEY)
 
 # ── Startup: load LibreYOLO model once ────────────────────────────────────────
 # Model weights — try a repo-local copy first, then known local paths,
