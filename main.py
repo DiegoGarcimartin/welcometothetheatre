@@ -57,41 +57,82 @@ except Exception as e:
 # permission needed.
 
 # ── Constants ─────────────────────────────────────────────────────────────────
+# Géneros disparatados que el público puede elegir.
 GENRES = [
-    "Greek Tragedy",
-    "Telenovela",
-    "Film Noir",
-    "Nordic Existential Drama",
-    "Spaghetti Western",
-    "Shakespearean",
-    "Epic Fantasy",
-    "Daytime Soap Opera",
+    "Tragedia griega",
+    "Telenovela venezolana",
+    "Cine negro de detectives",
+    "Drama existencial nórdico",
+    "Western espagueti",
+    "Teatro shakespeariano",
+    "Fantasía épica medieval",
+    "Documental épico de naturaleza",
+    "Ópera espacial",
+    "Telediario catastrofista",
+    "Culebrón de sobremesa",
+    "Épica vikinga",
 ]
 
+# Objetos de reserva, absurdos y divertidos, si no se detecta nada.
 FALLBACK_OBJECTS = [
-    "a pineapple",
-    "a suspicious cat",
-    "a rubber duck",
-    "a single lonely sock",
-    "an existential houseplant",
-    "a half-eaten sandwich",
-    "a traffic cone",
+    "una piña con secretos",
+    "un gato sospechoso",
+    "un patito de goma",
+    "un calcetín solitario",
+    "una planta de interior deprimida",
+    "un bocadillo a medio comer",
+    "un cono de tráfico fugitivo",
+    "una fregona con ambiciones",
 ]
+
+# Traducción de las clases COCO (inglés) al español, para narrar y mostrar.
+COCO_ES = {
+    "person": "una persona", "bicycle": "una bicicleta", "car": "un coche",
+    "motorcycle": "una moto", "airplane": "un avión", "bus": "un autobús",
+    "train": "un tren", "truck": "un camión", "boat": "un barco",
+    "traffic light": "un semáforo", "fire hydrant": "una boca de incendios",
+    "stop sign": "una señal de stop", "parking meter": "un parquímetro",
+    "bench": "un banco", "bird": "un pájaro", "cat": "un gato", "dog": "un perro",
+    "horse": "un caballo", "sheep": "una oveja", "cow": "una vaca",
+    "elephant": "un elefante", "bear": "un oso", "zebra": "una cebra",
+    "giraffe": "una jirafa", "backpack": "una mochila", "umbrella": "un paraguas",
+    "handbag": "un bolso", "tie": "una corbata", "suitcase": "una maleta",
+    "frisbee": "un frisbee", "skis": "unos esquís", "snowboard": "una tabla de snow",
+    "sports ball": "una pelota", "kite": "una cometa", "baseball bat": "un bate",
+    "baseball glove": "un guante de béisbol", "skateboard": "un monopatín",
+    "surfboard": "una tabla de surf", "tennis racket": "una raqueta",
+    "bottle": "una botella", "wine glass": "una copa de vino", "cup": "una taza",
+    "fork": "un tenedor", "knife": "un cuchillo", "spoon": "una cuchara",
+    "bowl": "un cuenco", "banana": "un plátano", "apple": "una manzana",
+    "sandwich": "un bocadillo", "orange": "una naranja", "broccoli": "un brócoli",
+    "carrot": "una zanahoria", "hot dog": "un perrito caliente", "pizza": "una pizza",
+    "donut": "un dónut", "cake": "un pastel", "chair": "una silla", "couch": "un sofá",
+    "potted plant": "una maceta", "bed": "una cama", "dining table": "una mesa",
+    "toilet": "un váter", "tv": "una tele", "laptop": "un portátil", "mouse": "un ratón",
+    "remote": "un mando", "keyboard": "un teclado", "cell phone": "un móvil",
+    "microwave": "un microondas", "oven": "un horno", "toaster": "una tostadora",
+    "sink": "un fregadero", "refrigerator": "una nevera", "book": "un libro",
+    "clock": "un reloj", "vase": "un jarrón", "scissors": "unas tijeras",
+    "teddy bear": "un osito de peluche", "hair drier": "un secador",
+    "toothbrush": "un cepillo de dientes",
+}
 
 NARRATOR_SYSTEM = (
-    "You are a grandiloquent, omniscient theater narrator delivering a live voice-over. "
-    "You treat mundane everyday objects as profound, fate-laden dramatic elements. "
-    "Commit FULLY to the chosen genre. Write in English. "
-    "The humor comes from over-the-top seriousness, never from breaking character. "
-    "Keep each response to 2-3 sentences, maximum 45 words. "
-    "Maintain continuity with the story so far. Keep it PG. "
-    "Output ONLY the spoken narration as plain prose — no stage directions, "
-    "no sound effects, no asterisks, no markdown, no line breaks, no labels."
+    "Eres un narrador de teatro grandilocuente y omnisciente que hace una voz en off en directo. "
+    "Tratas objetos cotidianos y aburridos como si fueran elementos dramáticos épicos y trascendentales. "
+    "Te comprometes AL MÁXIMO con el género elegido, pero la gracia está en lo DISPARATADO y CÓMICO: "
+    "exageras hasta el ridículo, eres absurdo, surrealista y muy divertido. "
+    "Es humor luminoso y desternillante, NUNCA oscuro, triste, deprimente ni dramático de verdad. "
+    "Nada de muerte, sangre, sufrimiento real ni tristeza: todo es ridículo y para reírse. "
+    "Escribe en español de España (castellano), con naturalidad y chispa. "
+    "Máximo 2-3 frases, 45 palabras como mucho. Mantén la continuidad con la historia. Apto para todos los públicos. "
+    "Devuelve SOLO la narración hablada en prosa: sin acotaciones, sin efectos de sonido, "
+    "sin asteriscos, sin markdown, sin saltos de línea, sin etiquetas."
 )
 
 CANNED_FALLBACK = (
-    "And so fate intervenes — a presence so catastrophic, so magnificently absurd, "
-    "that even the gods themselves dare not speak its name aloud. The drama continues."
+    "¡Y entonces el destino, con su habitual sentido del humor, lo cambió todo! "
+    "Nadie lo vio venir, ni siquiera el apuntador. La función, queridos míos, continúa."
 )
 
 app = FastAPI()
@@ -117,22 +158,39 @@ def _np(x):
         return np.asarray(x)
 
 
+CONF_THRESHOLD = 0.35  # tiny COCO model — keep it generous so it catches objects
+
+
 def _detect_objects(frame: np.ndarray) -> list[str]:
-    """Run LibreYOLO on frame, return unique class names with conf > 0.5."""
+    """Run LibreYOLO and return detected objects in Spanish, best first.
+
+    Ignores 'person' — the user is always in frame, so we want the object
+    they're holding up, not them. Returns unique class names sorted by
+    confidence (most prominent object first), translated to Spanish.
+    """
     if not YOLO_LOADED or _yolo is None:
         return []
     try:
         pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        results = _yolo(pil_img)
+        results = _yolo(pil_img, conf=CONF_THRESHOLD)
         r = results[0] if isinstance(results, (list, tuple)) else results
         conf_arr = _np(r.boxes.conf)
         cls_arr  = _np(r.boxes.cls).astype(int)
         names    = r.names
-        seen = set()
+        # collect (confidence, english_name), skip 'person', best first
+        dets = []
         for c, k in zip(conf_arr, cls_arr):
-            if float(c) > 0.5:
-                seen.add(names.get(int(k), str(k)))
-        return list(seen)
+            name = names.get(int(k), str(k))
+            if float(c) >= CONF_THRESHOLD and name != "person":
+                dets.append((float(c), name))
+        dets.sort(reverse=True)
+        seen, out = set(), []
+        for _, name in dets:
+            es = COCO_ES.get(name, name)
+            if es not in seen:
+                seen.add(es)
+                out.append(es)
+        return out[:3]  # at most 3 objects, the most prominent ones
     except Exception as e:
         print(f"[detect] error: {e}")
         return []
@@ -167,17 +225,27 @@ def serve_ui():
     return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
 
 
+@app.get("/genres")
+def genres():
+    """List of selectable genres for the landing picker."""
+    return {"genres": GENRES}
+
+
 @app.get("/new_show")
-def new_show():
-    genre = random.choice(GENRES)
+def new_show(genre: Optional[str] = None):
+    # Use the genre the audience picked; fall back to random if none/invalid.
+    if not genre or genre not in GENRES:
+        genre = random.choice(GENRES)
     try:
         theme = _llm(
-            f"Generate a dramatic play title for a {genre} show about mundane everyday objects. "
-            "Return ONLY the title, no extra text. Max 10 words.",
-            system="You are a pompous theater impresario. Titles only, maximum 10 words.",
+            f"Inventa un título de obra de teatro disparatado y divertidísimo para un espectáculo "
+            f"de género «{genre}» que va sobre objetos cotidianos y aburridos. "
+            "Devuelve SOLO el título, sin comillas ni texto extra. Máximo 8 palabras.",
+            system=("Eres un empresario teatral pomposo y con muchísima labia. "
+                    "Solo títulos en español de España, máximo 8 palabras, cuanto más absurdos mejor."),
         )
     except Exception:
-        theme = f"The Magnificent Objects of {genre}"
+        theme = f"Los magníficos objetos de la {genre}"
     return {"genre": genre, "theme": theme}
 
 
@@ -211,19 +279,18 @@ def narrate(req: NarrateRequest):
     try:
         if req.is_ending:
             prompt = (
-                f"Genre: {req.genre}. Play: \"{req.theme}\".\n"
-                f"Story so far: {req.story_so_far}\n"
-                "Deliver a FINAL 2-3 sentence dramatic conclusion. "
-                "The story ends with operatic grandeur and perhaps a hint of absurdity. "
-                "Max 45 words."
+                f"Género: {req.genre}. Obra: «{req.theme}».\n"
+                f"Historia hasta ahora: {req.story_so_far}\n"
+                "Cierra la función con un FINAL apoteósico de 2-3 frases, grandilocuente y "
+                "desternillante, con un giro absurdo. Que dé ganas de aplaudir y reír. Máximo 45 palabras."
             )
         else:
             prompt = (
-                f"Genre: {req.genre}. Play: \"{req.theme}\".\n"
-                f"Story so far: {req.story_so_far}\n"
-                f"A new object has entered the stage: {req.new_object}.\n"
-                "Write 2-3 sentences treating this object as deeply fate-laden and dramatically significant. "
-                "Escalate the tension. Max 45 words."
+                f"Género: {req.genre}. Obra: «{req.theme}».\n"
+                f"Historia hasta ahora: {req.story_so_far}\n"
+                f"Ha entrado en escena un nuevo objeto: {req.new_object}.\n"
+                "Escribe 2-3 frases tratando ese objeto como algo épico y trascendental, "
+                "exagerando hasta lo ridículo de forma divertidísima. Sube el dramatismo de broma. Máximo 45 palabras."
             )
         line = _llm(prompt)
     except Exception as e:

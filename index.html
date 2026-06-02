@@ -175,6 +175,35 @@
     line-height: 1.6;
   }
 
+  /* Genre picker grid */
+  #genre-grid {
+    pointer-events: all;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(150px, 1fr));
+    gap: 10px;
+    max-width: 640px;
+    margin: 4px auto 8px;
+  }
+  .genre-btn {
+    background: rgba(40, 20, 10, 0.6);
+    border: 1px solid rgba(201, 168, 76, 0.35);
+    color: var(--text);
+    padding: 11px 12px;
+    font-family: 'IM Fell English', serif;
+    font-size: 0.95rem;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: all 0.15s;
+    text-align: center;
+  }
+  .genre-btn:hover { border-color: var(--gold); background: rgba(80, 40, 15, 0.7); }
+  .genre-btn.selected {
+    background: linear-gradient(135deg, rgba(201,168,76,0.35), rgba(138,96,16,0.35));
+    border-color: var(--gold);
+    color: var(--gold);
+    box-shadow: 0 0 16px rgba(201,168,76,0.3);
+  }
+
   #btn-start {
     pointer-events: all;
     background: linear-gradient(135deg, var(--gold), #8a6010);
@@ -189,7 +218,8 @@
     clip-path: polygon(8px 0%, calc(100% - 8px) 0%, 100% 50%, calc(100% - 8px) 100%, 8px 100%, 0% 50%);
     transition: filter 0.2s, transform 0.15s;
   }
-  #btn-start:hover { filter: brightness(1.15); transform: scale(1.04); }
+  #btn-start:hover:not(:disabled) { filter: brightness(1.15); transform: scale(1.04); }
+  #btn-start:disabled { opacity: 0.4; cursor: not-allowed; }
 
   /* ── Title card ── */
   #title-card {
@@ -391,41 +421,42 @@
   <!-- Stage video (browser webcam via getUserMedia) -->
   <div id="stage-window">
     <video id="stage-video" autoplay muted playsinline></video>
-    <div id="cam-error">📷 Camera unavailable — allow camera access and reload.</div>
+    <div id="cam-error">📷 Cámara no disponible — permite el acceso a la cámara y recarga.</div>
   </div>
   <canvas id="capture-canvas" style="display:none"></canvas>
 
   <!-- Landing -->
   <div id="landing">
-    <h1>The Absurd<br>Theater</h1>
-    <p>An AI narrator will improvise a dramatic story using whatever objects you hold up to the camera.</p>
-    <button id="btn-start">▶ Start the Show</button>
+    <h1>El Teatro<br>del Absurdo</h1>
+    <p>Un narrador con IA improvisará una historia disparatada con los objetos que enseñes a la cámara. Elige tu género:</p>
+    <div id="genre-grid"></div>
+    <button id="btn-start" disabled>▶ Empezar la función</button>
   </div>
 
   <!-- Title card -->
   <div id="title-card" class="hidden">
-    <div id="genre-label">—— Genre ——</div>
-    <div id="play-title">Loading…</div>
+    <div id="genre-label">—— Género ——</div>
+    <div id="play-title">Cargando…</div>
     <div id="title-divider"></div>
   </div>
 
   <!-- Beat countdown prompt -->
   <div id="beat-prompt">
-    <p>Bring something to the stage in…</p>
+    <p>Trae algo al escenario en…</p>
     <div id="beat-countdown">3</div>
   </div>
 
   <!-- Object card -->
   <div id="object-card">
-    <small>Now entering the stage</small>
+    <small>Entra en escena</small>
     <span id="object-name"></span>
   </div>
 
   <!-- THE END -->
   <div id="the-end">
-    <h2>THE END</h2>
-    <p>— Fin —</p>
-    <button id="btn-restart">Encore Performance</button>
+    <h2>FIN</h2>
+    <p>— Telón —</p>
+    <button id="btn-restart">Otra función</button>
   </div>
 
   <!-- Subtitle bar (always visible) -->
@@ -446,14 +477,16 @@ function speak(text, onDone) {
   synth.cancel();
   if (!text) { if (onDone) onDone(); return; }
   const utt = new SpeechSynthesisUtterance(text);
-  utt.lang = 'en-US';
-  utt.rate = 0.88;
-  utt.pitch = 0.95;
+  utt.lang = 'es-ES';
+  utt.rate = 0.95;
+  utt.pitch = 1.0;
   utt.onend = () => { if (onDone) onDone(); };
   utt.onerror = () => { if (onDone) onDone(); };
-  // prefer a dramatic voice if available
+  // prefer a Spanish (Spain) voice if available
   const voices = synth.getVoices();
-  const pref = voices.find(v => /daniel|alex|fred|thomas/i.test(v.name) && v.lang.startsWith('en'));
+  const pref = voices.find(v => v.lang === 'es-ES' && /mónica|monica|jorge|diego|enrique/i.test(v.name))
+            || voices.find(v => v.lang === 'es-ES')
+            || voices.find(v => v.lang && v.lang.startsWith('es'));
   if (pref) utt.voice = pref;
   synth.speak(utt);
 }
@@ -485,7 +518,33 @@ let genre = '', theme = '', storyText = '';
 let totalTimer = null, secondsLeft = 90;
 let forceEnding = false;
 let mediaStream = null;
+let chosenGenre = null;   // genre selected on the landing (null = surprise me)
 const $captureCanvas = document.getElementById('capture-canvas');
+const $genreGrid = document.getElementById('genre-grid');
+
+// ── Genre picker ───────────────────────────────────────────────────────────────
+async function loadGenres() {
+  let list = [];
+  try {
+    const r = await api('GET', '/genres');
+    list = r.genres || [];
+  } catch (e) { /* ignore — button stays disabled */ }
+  // "Surprise me" option first, then every genre
+  const options = [{ label: '🎲 ¡Sorpréndeme!', value: null }, ...list.map(g => ({ label: g, value: g }))];
+  $genreGrid.innerHTML = '';
+  options.forEach(opt => {
+    const b = document.createElement('button');
+    b.className = 'genre-btn';
+    b.textContent = opt.label;
+    b.addEventListener('click', () => {
+      chosenGenre = opt.value;
+      document.querySelectorAll('.genre-btn').forEach(x => x.classList.remove('selected'));
+      b.classList.add('selected');
+      $btnStart.disabled = false;
+    });
+    $genreGrid.appendChild(b);
+  });
+}
 
 // ── Camera (browser-owned via getUserMedia) ────────────────────────────────────
 async function initCamera() {
@@ -562,18 +621,19 @@ async function startShow() {
   // Open curtains
   $container.classList.add('curtains-open');
 
-  // Fetch genre + theme
-  const showData = await api('GET', '/new_show');
+  // Fetch genre + theme (pass the chosen genre, or none = surprise me)
+  const qs = chosenGenre ? `?genre=${encodeURIComponent(chosenGenre)}` : '';
+  const showData = await api('GET', '/new_show' + qs);
   genre = showData.genre;
   theme = showData.theme;
   storyText = '';
 
   // Show title card
   $genreLabel.textContent = `— ${genre} —`;
-  $playTitle.textContent = `"${theme}"`;
+  $playTitle.textContent = `«${theme}»`;
   $titleCard.classList.remove('hidden');
   $titleCard.classList.add('visible');
-  subtitle(`A ${genre} in one act: "${theme}"`);
+  subtitle(`${genre}, en un acto: «${theme}»`);
 
   await delay(2800);
   $titleCard.classList.remove('visible');
@@ -609,12 +669,12 @@ async function narratorBeat(prompt, isEnding, isIntro) {
       const r = await api('POST', '/narrate', {
         genre, theme,
         story_so_far: '',
-        new_object: 'the empty stage',
+        new_object: 'el escenario vacío (es la apertura de la función)',
         is_ending: false,
       });
       line = r.line;
     } catch(e) {
-      line = 'The curtain rises on a world trembling at the edge of destiny.';
+      line = '¡Se alza el telón sobre un mundo que tiembla al borde de lo ridículo!';
     }
   }
   subtitle(line || '…');
@@ -627,7 +687,7 @@ async function objectBeat(index) {
   $beatPrompt.classList.add('visible');
   for (let n = 3; n >= 1; n--) {
     $beatCd.textContent = n;
-    subtitle(`Bring something to the stage in… ${n}`);
+    subtitle(`Trae algo al escenario en… ${n}`);
     await delay(1000);
     if (forceEnding) { $beatPrompt.classList.remove('visible'); return; }
   }
@@ -636,13 +696,13 @@ async function objectBeat(index) {
   // Capture the current webcam frame and send it for detection
   const frame = grabFrame();
   const cap = await api('POST', '/capture', { image: frame });
-  const objects = cap.objects || ['a mysterious object'];
+  const objects = cap.objects || ['un objeto misterioso'];
   const objectStr = objects.join(', ');
 
   // Object card
   $objectName.textContent = objectStr;
   $objectCard.classList.add('visible');
-  subtitle(`Now entering the stage: ${objectStr}`);
+  subtitle(`Entra en escena: ${objectStr}`);
   await delay(2200);
   $objectCard.classList.remove('visible');
 
@@ -657,7 +717,7 @@ async function objectBeat(index) {
     });
     line = r.line;
   } catch(e) {
-    line = 'And so the fates delivered unto this stage an omen of unspeakable consequence.';
+    line = '¡Y entonces el destino, con su retranca habitual, plantó en escena semejante prodigio!';
   }
   subtitle(line);
   storyText += ' ' + line;
@@ -678,7 +738,7 @@ async function doEnding() {
     });
     line = r.line;
   } catch(e) {
-    line = 'And thus the curtain fell upon a world forever changed by what had transpired here today.';
+    line = '¡Y así cayó el telón sobre un mundo cambiado para siempre por semejante disparate! ¡Fin!';
   }
   subtitle(line);
   await speakAndWait(line);
@@ -705,8 +765,8 @@ function speakAndWait(text) {
   return new Promise(resolve => speak(text, resolve));
 }
 
-// Preload voices
-window.addEventListener('load', () => { synth.getVoices(); });
+// Preload voices + populate the genre picker
+window.addEventListener('load', () => { synth.getVoices(); loadGenres(); });
 </script>
 </body>
 </html>

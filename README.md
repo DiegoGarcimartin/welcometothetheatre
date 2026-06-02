@@ -1,9 +1,10 @@
 # 🎭 The Absurd Theater
 
-A webcam-based interactive theater. An AI narrator improvises a dramatic story
-in a random genre (Greek tragedy, film noir, telenovela…) and weaves in whatever
-real objects you hold up to the camera — narrating a coffee mug or a banana with
-full operatic gravity. One continuous ~90s performance.
+A webcam-based interactive theater. You **pick a zany genre** (Greek tragedy,
+telenovela, spaghetti western, space opera…), and an AI narrator improvises a
+**funny, over-the-top** story in **Spanish (Spain)**, weaving in whatever real
+objects you hold up to the camera — narrating a coffee mug or a banana with full
+(comedic) operatic gravity. One continuous ~90s performance.
 
 - **Backend:** Python + FastAPI (`main.py`)
 - **Camera:** owned by the **browser** (`getUserMedia`) — frames are POSTed to the
@@ -59,8 +60,9 @@ Web Speech API voices, and turn the volume up.
 | Endpoint | Purpose |
 |---|---|
 | `GET /` | serves the HTML stage |
-| `GET /new_show` | picks a random genre + an LLM-generated play title |
-| `POST /capture` | runs detection on the posted webcam frame, returns objects (conf > 0.5; funny fallback if none) |
+| `GET /genres` | the list of selectable genres (for the landing picker) |
+| `GET /new_show?genre=…` | uses the chosen genre (or random) + an LLM-generated play title |
+| `POST /capture` | runs detection on the posted frame; ignores `person`, returns the held objects in Spanish (conf ≥ 0.35; funny fallback if none) |
 | `POST /narrate` | returns a 2-3 sentence dramatic continuation in genre |
 
 If `ANTHROPIC_API_KEY` is unset or the API fails, the narrator falls back to
