@@ -28,20 +28,29 @@ if not _API_KEY:
           "canned fallback lines. Copy .env.example to .env and add your key.")
 client = anthropic.Anthropic(api_key=_API_KEY)
 
-# ── Cloud TTS (ElevenLabs) — optional, swappable ──────────────────────────────
-# If ELEVENLABS_API_KEY is set, narration is voiced by ElevenLabs (real voices);
-# otherwise the browser's built-in speechSynthesis is used. The voice is fully
-# configurable via ELEVENLABS_VOICE_ID — set it to any voice you are entitled to
-# use. (Default is a stock multilingual voice; do NOT clone a real person's voice
-# without authorisation — that violates ElevenLabs' terms.)
+# ── Cloud TTS — optional, swappable ───────────────────────────────────────────
+# Two providers supported; whichever has a key configured is used (fish.audio
+# first). Otherwise the browser's built-in speechSynthesis voices the show.
+#
+# fish.audio: set FISH_API_KEY. FISH_MODEL_ID picks the voice — defaults to the
+# Chiquito de la Calzada community model for the bit. (Parody of a public figure;
+# use your own fish.audio account.)
+FISH_KEY = os.environ.get("FISH_API_KEY", "")
+FISH_MODEL_ID = os.environ.get("FISH_MODEL_ID", "1f747932d1b947359760ad8b431cdf31")
+FISH_BACKBONE = os.environ.get("FISH_BACKBONE", "s1")
+
+# ElevenLabs: set ELEVENLABS_API_KEY + ELEVENLABS_VOICE_ID.
 ELEVEN_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
-ELEVEN_VOICE = os.environ.get("ELEVENLABS_VOICE_ID", "")  # set your own voice id
+ELEVEN_VOICE = os.environ.get("ELEVENLABS_VOICE_ID", "")
 ELEVEN_MODEL = os.environ.get("ELEVENLABS_MODEL", "eleven_multilingual_v2")
-if ELEVEN_KEY:
-    print(f"[startup] ElevenLabs TTS enabled (voice={ELEVEN_VOICE or 'default'}).")
+
+if FISH_KEY:
+    print(f"[startup] Cloud TTS: fish.audio (model={FISH_MODEL_ID}).")
+elif ELEVEN_KEY:
+    print(f"[startup] Cloud TTS: ElevenLabs (voice={ELEVEN_VOICE or 'default'}).")
 else:
-    print("[startup] ElevenLabs not configured — using browser voice. "
-          "Set ELEVENLABS_API_KEY (+ optional ELEVENLABS_VOICE_ID) in .env to enable.")
+    print("[startup] No cloud TTS configured — using browser voice. "
+          "Set FISH_API_KEY (or ELEVENLABS_API_KEY) in .env to enable.")
 
 # ── Startup: load LibreYOLO model once ────────────────────────────────────────
 # Model weights — try a repo-local copy first, then known local paths,
@@ -244,38 +253,61 @@ def laugh_track():
 @app.get("/config")
 def config():
     # Tells the frontend whether to use cloud TTS or the browser voice.
-    return {"cloud_tts": bool(ELEVEN_KEY)}
+    return {"cloud_tts": bool(FISH_KEY or (ELEVEN_KEY and ELEVEN_VOICE))}
 
 
 class TTSRequest(BaseModel):
     text: str
 
 
+def _tts_fish(text: str) -> bytes:
+    r = requests.post(
+        "https://api.fish.audio/v1/tts",
+        headers={
+            "Authorization": f"Bearer {FISH_KEY}",
+            "Content-Type": "application/json",
+            "model": FISH_BACKBONE,
+        },
+        json={"text": text, "reference_id": FISH_MODEL_ID, "format": "mp3"},
+        timeout=30,
+    )
+    r.raise_for_status()
+    return r.content
+
+
+def _tts_eleven(text: str) -> bytes:
+    r = requests.post(
+        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_VOICE}",
+        headers={
+            "xi-api-key": ELEVEN_KEY,
+            "accept": "audio/mpeg",
+            "content-type": "application/json",
+        },
+        json={
+            "text": text,
+            "model_id": ELEVEN_MODEL,
+            "voice_settings": {"stability": 0.4, "similarity_boost": 0.8, "style": 0.6},
+        },
+        timeout=20,
+    )
+    r.raise_for_status()
+    return r.content
+
+
 @app.post("/tts")
 def tts(req: TTSRequest):
-    """Voice a line with ElevenLabs and return MP3 audio. 503 if not configured
-    so the frontend can fall back to the browser voice."""
-    if not ELEVEN_KEY or not ELEVEN_VOICE:
-        raise HTTPException(status_code=503, detail="ElevenLabs not configured")
+    """Voice a line via cloud TTS and return MP3. 503 if not configured so the
+    frontend can fall back to the browser voice."""
+    if FISH_KEY:
+        provider = _tts_fish
+    elif ELEVEN_KEY and ELEVEN_VOICE:
+        provider = _tts_eleven
+    else:
+        raise HTTPException(status_code=503, detail="cloud TTS not configured")
     try:
-        r = requests.post(
-            f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_VOICE}",
-            headers={
-                "xi-api-key": ELEVEN_KEY,
-                "accept": "audio/mpeg",
-                "content-type": "application/json",
-            },
-            json={
-                "text": req.text,
-                "model_id": ELEVEN_MODEL,
-                "voice_settings": {"stability": 0.4, "similarity_boost": 0.8, "style": 0.6},
-            },
-            timeout=20,
-        )
-        r.raise_for_status()
-        return Response(content=r.content, media_type="audio/mpeg")
+        return Response(content=provider(req.text), media_type="audio/mpeg")
     except Exception as e:
-        print(f"[tts] ElevenLabs error: {e}")
+        print(f"[tts] error: {e}")
         raise HTTPException(status_code=502, detail="TTS failed")
 
 
