@@ -477,16 +477,21 @@ function speak(text, onDone) {
   if (!text) { if (onDone) onDone(); return; }
   const utt = new SpeechSynthesisUtterance(text);
   utt.lang = 'es-ES';
-  utt.rate = 0.95;
+  utt.rate = 1.0;
   utt.pitch = 1.0;
   utt.onend = () => { if (onDone) onDone(); };
   utt.onerror = () => { if (onDone) onDone(); };
-  // prefer a Spanish (Spain) voice if available
+  // Pick the most natural Spanish voice available. Chrome's "Google español"
+  // voices are far more fluid than the robotic system ones (Mónica/Loquendo),
+  // so prefer those first, then enhanced/premium, then any Spanish voice.
   const voices = synth.getVoices();
-  const pref = voices.find(v => v.lang === 'es-ES' && /mónica|monica|jorge|diego|enrique/i.test(v.name))
-            || voices.find(v => v.lang === 'es-ES')
-            || voices.find(v => v.lang && v.lang.startsWith('es'));
-  if (pref) utt.voice = pref;
+  const es = voices.filter(v => v.lang && v.lang.toLowerCase().startsWith('es'));
+  const pref = es.find(v => /google/i.test(v.name) && /es[-_]?es|españa|de espa/i.test(v.name + ' ' + v.lang))
+            || es.find(v => /google/i.test(v.name))
+            || es.find(v => /premium|enhanced|natural|neural/i.test(v.name) && v.lang.replace('_','-') === 'es-ES')
+            || es.find(v => v.lang.replace('_','-') === 'es-ES')
+            || es[0];
+  if (pref) { utt.voice = pref; utt.lang = pref.lang; }
   synth.speak(utt);
 }
 
@@ -513,7 +518,7 @@ const $btnStart   = document.getElementById('btn-start');
 const $btnRestart = document.getElementById('btn-restart');
 
 // ── State ────────────────────────────────────────────────────────────────────
-const OBJECT_ROUNDS = 5;          // how many objects the show asks for
+const OBJECT_ROUNDS = 3;          // how many objects the show asks for
 let genre = '', theme = '', storyText = '';
 let totalTimer = null, secondsLeft = 180;
 let forceEnding = false;

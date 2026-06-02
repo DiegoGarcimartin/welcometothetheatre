@@ -31,12 +31,12 @@ client = anthropic.Anthropic(api_key=_API_KEY)
 # Model weights — try a repo-local copy first, then known local paths,
 # then fall through to "LibreYOLO9t.pt" which libreyolo auto-downloads.
 _HERE = Path(__file__).parent
+# LibreYOLO9m: best object recall of the YOLO9 sizes we tested (skateboard 0.90
+# vs 0.55 for the tiny model), still ~100ms/frame. Falls back to t if missing.
 _MODEL_CANDIDATES = [
+    str(_HERE / "weights" / "LibreYOLO9m.pt"),
     str(_HERE / "weights" / "LibreYOLO9t.pt"),
-    str(Path.home() / "hackathon-cursor/libreyolo/weights/LibreYOLO9t.pt"),
-    str(Path.home() / "el-juego-de-la-sepia/server/weights/LibreYOLO9t.pt"),
-    str(Path.home() / "claude/vision-hackathon/libreyolo/weights/LibreYOLO9t.pt"),
-    "LibreYOLO9t.pt",  # falls through to libreyolo auto-download
+    "LibreYOLO9m.pt",  # falls through to libreyolo auto-download from HF
 ]
 
 try:
