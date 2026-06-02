@@ -15,8 +15,11 @@ import anthropic
 client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
 
 # ── Startup: load LibreYOLO model once ────────────────────────────────────────
-# Model weights — try local path first, then let libreyolo download
+# Model weights — try a repo-local copy first, then known local paths,
+# then fall through to "LibreYOLO9t.pt" which libreyolo auto-downloads.
+_HERE = Path(__file__).parent
 _MODEL_CANDIDATES = [
+    str(_HERE / "weights" / "LibreYOLO9t.pt"),
     str(Path.home() / "hackathon-cursor/libreyolo/weights/LibreYOLO9t.pt"),
     str(Path.home() / "el-juego-de-la-sepia/server/weights/LibreYOLO9t.pt"),
     str(Path.home() / "claude/vision-hackathon/libreyolo/weights/LibreYOLO9t.pt"),

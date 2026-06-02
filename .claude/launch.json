@@ -6,8 +6,7 @@
       "runtimeExecutable": "/bin/bash",
       "runtimeArgs": ["start.sh"],
       "port": 8010,
-      "autoPort": true,
-      "cwd": "/Users/diegogarcimartinrey/claude/welcometothetheatre"
+      "autoPort": true
     }
   ]
 }
