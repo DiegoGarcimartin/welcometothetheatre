@@ -85,7 +85,9 @@ NARRATOR_SYSTEM = (
     "Commit FULLY to the chosen genre. Write in English. "
     "The humor comes from over-the-top seriousness, never from breaking character. "
     "Keep each response to 2-3 sentences, maximum 45 words. "
-    "Maintain continuity with the story so far. Keep it PG."
+    "Maintain continuity with the story so far. Keep it PG. "
+    "Output ONLY the spoken narration as plain prose — no stage directions, "
+    "no sound effects, no asterisks, no markdown, no line breaks, no labels."
 )
 
 CANNED_FALLBACK = (
@@ -153,6 +155,19 @@ def _detect_objects(frame: np.ndarray) -> list[str]:
         return []
 
 
+import re
+
+_STAGE_DIR = re.compile(r"\*[^*]*\*")  # *harmonica wails* style asides
+
+
+def _clean(text: str) -> str:
+    """Strip stage directions, markdown and line breaks so TTS reads clean prose."""
+    text = _STAGE_DIR.sub("", text)
+    text = text.replace("*", "").replace("#", "")
+    text = re.sub(r"\s+", " ", text)  # collapse newlines/extra spaces
+    return text.strip()
+
+
 def _llm(prompt: str, system: str = NARRATOR_SYSTEM) -> str:
     msg = client.messages.create(
         model="claude-sonnet-4-5",
@@ -160,7 +175,7 @@ def _llm(prompt: str, system: str = NARRATOR_SYSTEM) -> str:
         system=system,
         messages=[{"role": "user", "content": prompt}],
     )
-    return msg.content[0].text.strip()
+    return _clean(msg.content[0].text)
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
