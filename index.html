@@ -530,8 +530,10 @@ function speak(text, onDone) {
   if (!text) { if (onDone) onDone(); return; }
   const utt = new SpeechSynthesisUtterance(text);
   utt.lang = 'es-ES';
-  utt.rate = 1.0;
-  utt.pitch = 1.0;
+  // High & fast = closer to Chiquito's frantic, nasal delivery (not his real
+  // voice — the browser can't do that — but much more in-character).
+  utt.rate = 1.18;
+  utt.pitch = 1.6;
   utt.onend = () => { if (onDone) onDone(); };
   utt.onerror = () => { if (onDone) onDone(); };
   // Pick the most natural Spanish voice available. Chrome's "Google español"
