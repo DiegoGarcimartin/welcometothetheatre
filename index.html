@@ -428,9 +428,8 @@
   <!-- Landing -->
   <div id="landing">
     <h1>El Teatro<br>del Absurdo</h1>
-    <p>Un narrador con IA improvisará una historia disparatada con los objetos que enseñes a la cámara. Elige tu género:</p>
-    <div id="genre-grid"></div>
-    <button id="btn-start" disabled>▶ Empezar la función</button>
+    <p>Un narrador con IA irá componiendo una historia disparatada con los objetos que enseñes a la cámara.</p>
+    <button id="btn-start">▶ Empezar la función</button>
   </div>
 
   <!-- Title card -->
@@ -514,37 +513,12 @@ const $btnStart   = document.getElementById('btn-start');
 const $btnRestart = document.getElementById('btn-restart');
 
 // ── State ────────────────────────────────────────────────────────────────────
+const OBJECT_ROUNDS = 5;          // how many objects the show asks for
 let genre = '', theme = '', storyText = '';
-let totalTimer = null, secondsLeft = 90;
+let totalTimer = null, secondsLeft = 180;
 let forceEnding = false;
 let mediaStream = null;
-let chosenGenre = null;   // genre selected on the landing (null = surprise me)
 const $captureCanvas = document.getElementById('capture-canvas');
-const $genreGrid = document.getElementById('genre-grid');
-
-// ── Genre picker ───────────────────────────────────────────────────────────────
-async function loadGenres() {
-  let list = [];
-  try {
-    const r = await api('GET', '/genres');
-    list = r.genres || [];
-  } catch (e) { /* ignore — button stays disabled */ }
-  // "Surprise me" option first, then every genre
-  const options = [{ label: '🎲 ¡Sorpréndeme!', value: null }, ...list.map(g => ({ label: g, value: g }))];
-  $genreGrid.innerHTML = '';
-  options.forEach(opt => {
-    const b = document.createElement('button');
-    b.className = 'genre-btn';
-    b.textContent = opt.label;
-    b.addEventListener('click', () => {
-      chosenGenre = opt.value;
-      document.querySelectorAll('.genre-btn').forEach(x => x.classList.remove('selected'));
-      b.classList.add('selected');
-      $btnStart.disabled = false;
-    });
-    $genreGrid.appendChild(b);
-  });
-}
 
 // ── Camera (browser-owned via getUserMedia) ────────────────────────────────────
 async function initCamera() {
@@ -623,38 +597,37 @@ async function startShow() {
   // Open curtains
   $container.classList.add('curtains-open');
 
-  // Fetch genre + theme (pass the chosen genre, or none = surprise me)
-  const qs = chosenGenre ? `?genre=${encodeURIComponent(chosenGenre)}` : '';
-  const showData = await api('GET', '/new_show' + qs);
+  // Fetch a random theme (no genre picker — the show just starts)
+  const showData = await api('GET', '/new_show');
   genre = showData.genre;
   theme = showData.theme;
   storyText = '';
 
-  // Show title card
+  // Quick title card
   $genreLabel.textContent = `— ${genre} —`;
   $playTitle.textContent = `«${theme}»`;
   $titleCard.classList.remove('hidden');
   $titleCard.classList.add('visible');
-  subtitle(`${genre}, en un acto: «${theme}»`);
+  subtitle(`«${theme}»`);
 
-  await delay(2800);
+  await delay(1800);
   $titleCard.classList.remove('visible');
-  await delay(600);
+  await delay(400);
   $titleCard.classList.add('hidden');
 
   startMasterTimer();
 
-  // Intro: "Érase una vez…" sets up a simple story
+  // Intro: "Érase una vez…" sets up a simple protagonist
   const intro = await narrate({ mode: 'intro', story_so_far: '' },
                               '¡Érase una vez una función a punto de empezar!');
   subtitle(intro);
   storyText = intro;
   await speakAndWait(intro);
 
-  // Three Mad-Libs rounds: setup (half sentence) → object → reveal (completion)
-  for (let i = 0; i < 3; i++) {
+  // Object rounds — each detected object is woven into the running story
+  for (let i = 0; i < OBJECT_ROUNDS; i++) {
     if (forceEnding) break;
-    await madLibsBeat();
+    await weaveBeat(i);
   }
 
   await doEnding();
@@ -675,45 +648,37 @@ async function narrate(opts, fallback) {
   }
 }
 
-async function madLibsBeat() {
-  // 1) SETUP — narrator builds a sentence that stops right before the object
-  const setup = await narrate(
-    { mode: 'setup', story_so_far: storyText.trim() },
-    'Y entonces el protagonista sacó muy despacio de su bolsillo…');
-  subtitle(setup);
-  await speakAndWait(setup);
-  if (forceEnding) return;
-
-  // 2) Countdown — bring an object
+async function weaveBeat(index) {
+  // 1) Quick countdown — bring an object
   $beatPrompt.classList.add('visible');
-  for (let n = 3; n >= 1; n--) {
+  for (let n = 2; n >= 1; n--) {
     $beatCd.textContent = n;
-    subtitle(`¡Enseña algo a la cámara en… ${n}!`);
-    await delay(1000);
+    subtitle(`¡Enseña un objeto a la cámara en… ${n}!`);
+    await delay(900);
     if (forceEnding) { $beatPrompt.classList.remove('visible'); return; }
   }
   $beatPrompt.classList.remove('visible');
 
-  // 3) Capture + detect the object held up to the camera
+  // 2) Capture + detect the object held up to the camera
   const frame = grabFrame();
   const cap = await api('POST', '/capture', { image: frame });
   const objects = cap.objects || ['un objeto misterioso'];
   const objectStr = objects.join(' y ');
 
-  // Object card
+  // Object card (brief)
   $objectName.textContent = objectStr;
   $objectCard.classList.add('visible');
   subtitle(`¡${objectStr}!`);
-  await delay(1600);
+  await delay(1200);
   $objectCard.classList.remove('visible');
 
-  // 4) REVEAL — complete the half sentence with the detected object
-  const reveal = await narrate(
-    { mode: 'reveal', story_so_far: setup, new_object: objectStr },
-    `…¡${objectStr}! Y nadie supo muy bien qué decir.`);
-  subtitle(reveal);
-  storyText += ' ' + setup + ' ' + reveal;
-  await speakAndWait(reveal);
+  // 3) Weave the object into the running story
+  const line = await narrate(
+    { mode: 'weave', story_so_far: storyText.trim(), new_object: objectStr },
+    `Y de pronto apareció ${objectStr}, como quien no quiere la cosa.`);
+  subtitle(line);
+  storyText += ' ' + line;
+  await speakAndWait(line);
 }
 
 async function doEnding() {
@@ -748,8 +713,8 @@ function speakAndWait(text) {
   return new Promise(resolve => speak(text, resolve));
 }
 
-// Preload voices + populate the genre picker
-window.addEventListener('load', () => { synth.getVoices(); loadGenres(); });
+// Preload voices
+window.addEventListener('load', () => { synth.getVoices(); });
 </script>
 </body>
 </html>

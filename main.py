@@ -163,15 +163,15 @@ def _np(x):
         return np.asarray(x)
 
 
-CONF_THRESHOLD = 0.35  # tiny COCO model — keep it generous so it catches objects
+CONF_THRESHOLD = 0.25  # tiny COCO model — keep it low so it catches more
 
 
 def _detect_objects(frame: np.ndarray) -> list[str]:
-    """Run LibreYOLO and return detected objects in Spanish, best first.
+    """Run LibreYOLO and return the single most prominent object, in Spanish.
 
     Ignores 'person' — the user is always in frame, so we want the object
-    they're holding up, not them. Returns unique class names sorted by
-    confidence (most prominent object first), translated to Spanish.
+    they're holding up, not them. Returns the highest-confidence non-person
+    class (translated to Spanish), or [] if nothing clears the threshold.
     """
     if not YOLO_LOADED or _yolo is None:
         return []
@@ -182,20 +182,14 @@ def _detect_objects(frame: np.ndarray) -> list[str]:
         conf_arr = _np(r.boxes.conf)
         cls_arr  = _np(r.boxes.cls).astype(int)
         names    = r.names
-        # collect (confidence, english_name), skip 'person', best first
-        dets = []
+        best_conf, best_name = 0.0, None
         for c, k in zip(conf_arr, cls_arr):
             name = names.get(int(k), str(k))
-            if float(c) >= CONF_THRESHOLD and name != "person":
-                dets.append((float(c), name))
-        dets.sort(reverse=True)
-        seen, out = set(), []
-        for _, name in dets:
-            es = COCO_ES.get(name, name)
-            if es not in seen:
-                seen.add(es)
-                out.append(es)
-        return out[:3]  # at most 3 objects, the most prominent ones
+            if name != "person" and float(c) >= CONF_THRESHOLD and float(c) > best_conf:
+                best_conf, best_name = float(c), name
+        if best_name is None:
+            return []
+        return [COCO_ES.get(best_name, best_name)]
     except Exception as e:
         print(f"[detect] error: {e}")
         return []
@@ -276,59 +270,40 @@ class NarrateRequest(BaseModel):
     theme: str
     story_so_far: str
     new_object: str = ""
-    mode: str = "reveal"          # "intro" | "setup" | "reveal" | "ending"
+    mode: str = "weave"           # "intro" | "weave" | "ending"
     is_ending: bool = False       # back-compat; equivalent to mode="ending"
 
 
-_SETUP_FALLBACKS = [
-    "Y entonces, en mitad de la escena, el protagonista sacó muy despacio su…",
-    "El silencio era absoluto cuando, de pronto, apareció sobre las tablas…",
-    "Nadie esperaba lo que el héroe llevaba escondido bajo la capa:…",
-]
-_REVEAL_FALLBACK = "…¡y resultó ser justo eso! Madre mía, qué giro. El público no daba crédito."
+_WEAVE_FALLBACK = "Y, como era de esperar, aquello lo cambió todo. Más o menos."
 
 
 @app.post("/narrate")
 def narrate(req: NarrateRequest):
     mode = "ending" if req.is_ending else req.mode
     try:
-        if mode == "ending":
+        if mode == "intro":
+            prompt = (
+                f"Género: {req.genre}. Obra: «{req.theme}».\n"
+                "Abre con UNA sola frase tipo cuento ('Érase una vez…') que presente a un "
+                "protagonista sencillo, en clave de comedia. Español de España. Máximo 18 palabras."
+            )
+        elif mode == "ending":
             prompt = (
                 f"Género: {req.genre}. Obra: «{req.theme}».\n"
                 f"Historia hasta ahora: {req.story_so_far}\n"
-                "Cierra la función con un FINAL de 2 frases: resuelve el cuento de forma sencilla y "
-                "ridícula, con remate cómico por bathos. Español de España. Máximo 35 palabras."
+                "Cierra con UNA frase que ate los objetos que han ido apareciendo, "
+                "con remate cómico por bathos. Español de España. Máximo 25 palabras."
             )
-        elif mode == "intro":
-            prompt = (
-                f"Género: {req.genre}. Obra: «{req.theme}».\n"
-                "Abre la función con UNA frase tipo cuento ('Érase una vez…') que presente a un "
-                "protagonista sencillo y la situación, en clave de comedia. Español de España. Máximo 25 palabras."
-            )
-        elif mode == "setup":
+        else:  # weave — incorporate the new object into the running story
             prompt = (
                 f"Género: {req.genre}. Obra: «{req.theme}».\n"
                 f"Historia hasta ahora: {req.story_so_far}\n"
-                "Continúa la historia con UNA frase corta y sencilla que termine JUSTO antes de un objeto, "
-                "dejándola a medias con puntos suspensivos, para que el público traiga un objeto real. "
-                "Ejemplos de formato: 'El príncipe salió al galope montado en su…', "
-                "'La princesa abrió el cofre del tesoro y dentro había…', "
-                "'El malvado hechicero alzó por encima de su cabeza su temible…'. "
-                "NO nombres tú ningún objeto. Termina obligatoriamente en '…'. Español de España. Máximo 18 palabras."
-            )
-        else:  # reveal
-            prompt = (
-                f"Género: {req.genre}. Obra: «{req.theme}».\n"
-                f"La frase quedó a medias así: «{req.story_so_far}»\n"
-                f"El público ha traído este objeto real: {req.new_object}.\n"
-                f"Completa la frase metiendo «{req.new_object}» como si fuera lo más normal del mundo, "
-                "y añade un remate cómico por lo absurdo del objeto en ese cuento (bathos/anticlímax). "
-                "Empieza enlazando con la frase a medias. Español de España. Máximo 30 palabras."
+                f"Acaba de aparecer en escena este objeto real: {req.new_object}.\n"
+                f"Continúa la historia en UNA frase corta metiendo «{req.new_object}» de forma "
+                "natural pero absurda (bathos, detalle castizo). Español de España. Máximo 22 palabras."
             )
         line = _llm(prompt)
     except Exception as e:
         print(f"[narrate] LLM error: {e}")
-        line = (random.choice(_SETUP_FALLBACKS) if mode == "setup"
-                else _REVEAL_FALLBACK if mode == "reveal"
-                else CANNED_FALLBACK)
+        line = CANNED_FALLBACK if mode != "weave" else _WEAVE_FALLBACK
     return {"line": line}
