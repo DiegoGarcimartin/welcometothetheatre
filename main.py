@@ -5,29 +5,33 @@ import random
 import threading
 import numpy as np
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
+from PIL import Image
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 import anthropic
 
 # ── Startup: LLM client ───────────────────────────────────────────────────────
 client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
 
-# ── Startup: load YOLO model once ─────────────────────────────────────────────
+# ── Startup: load LibreYOLO model once ────────────────────────────────────────
+# Model weights — try local path first, then let libreyolo download
+_MODEL_CANDIDATES = [
+    str(Path.home() / "hackathon-cursor/libreyolo/weights/LibreYOLO9t.pt"),
+    str(Path.home() / "el-juego-de-la-sepia/server/weights/LibreYOLO9t.pt"),
+    str(Path.home() / "claude/vision-hackathon/libreyolo/weights/LibreYOLO9t.pt"),
+    "LibreYOLO9t.pt",  # falls through to libreyolo auto-download
+]
+
 try:
-    import libreyolo  # noqa: already installed
-    # Probe the API to find the right loader
-    if hasattr(libreyolo, "YOLO"):
-        _yolo = libreyolo.YOLO("yolov8n")
-    elif hasattr(libreyolo, "load"):
-        _yolo = libreyolo.load("yolov8n")
-    else:
-        # Fallback: try calling the module directly
-        _yolo = libreyolo("yolov8n")
+    from libreyolo import LibreYOLO
+    _model_path = next((p for p in _MODEL_CANDIDATES if Path(p).exists()), "LibreYOLO9t.pt")
+    print(f"[startup] loading LibreYOLO from {_model_path} …")
+    _yolo = LibreYOLO(_model_path)
     YOLO_LOADED = True
-    print("[startup] libreyolo model loaded ✓")
+    print("[startup] LibreYOLO model loaded ✓")
 except Exception as e:
-    print(f"[startup] libreyolo load failed: {e}. Falling back to stub.")
+    print(f"[startup] libreyolo load failed: {e}. Will use fallback objects.")
     _yolo = None
     YOLO_LOADED = False
 
@@ -106,31 +110,28 @@ def _generate_mjpeg():
         time.sleep(0.04)  # ~25 fps
 
 
+def _np(x):
+    try:
+        return x.cpu().numpy()
+    except AttributeError:
+        return np.asarray(x)
+
+
 def _detect_objects(frame: np.ndarray) -> list[str]:
-    """Run YOLO on frame, return unique class names with conf > 0.5."""
+    """Run LibreYOLO on frame, return unique class names with conf > 0.5."""
     if not YOLO_LOADED or _yolo is None:
         return []
     try:
-        results = _yolo(frame)
+        pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        results = _yolo(pil_img)
+        r = results[0] if isinstance(results, (list, tuple)) else results
+        conf_arr = _np(r.boxes.conf)
+        cls_arr  = _np(r.boxes.cls).astype(int)
+        names    = r.names
         seen = set()
-        # Support different result shapes from libreyolo
-        detections = results if isinstance(results, list) else [results]
-        for r in detections:
-            # Try common attribute patterns
-            boxes = getattr(r, "boxes", None)
-            if boxes is not None:
-                for box in boxes:
-                    conf = float(getattr(box, "conf", [0])[0])
-                    if conf > 0.5:
-                        cls_id = int(getattr(box, "cls", [0])[0])
-                        name = getattr(r, "names", {}).get(cls_id, str(cls_id))
-                        seen.add(name)
-            # Fallback: direct list of (label, conf, bbox)
-            elif isinstance(r, (list, tuple)) and r and isinstance(r[0], (list, tuple)):
-                for item in r:
-                    label, conf = item[0], item[1]
-                    if float(conf) > 0.5:
-                        seen.add(str(label))
+        for c, k in zip(conf_arr, cls_arr):
+            if float(c) > 0.5:
+                seen.add(names.get(int(k), str(k)))
         return list(seen)
     except Exception as e:
         print(f"[detect] error: {e}")
