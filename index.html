@@ -511,6 +511,10 @@ const CHIQUITO_STINGS = [                                  // cycled after each 
 // preload them all
 [CHIQUITO_OPENER, CHIQUITO_CLOSER, ...CHIQUITO_STINGS].forEach(src => { const a = new Audio(src); a.preload = 'auto'; });
 
+// Rotate through the stings so consecutive Chiquito clips are different.
+let _stingIdx = 0;
+function nextSting() { return CHIQUITO_STINGS[(_stingIdx++) % CHIQUITO_STINGS.length]; }
+
 function initAudio() {
   // Unlock audio on the user gesture (play muted for a tick, then reset).
   try {
@@ -810,11 +814,12 @@ async function weaveBeat(index) {
   const objectStr = await readObject();
   if (forceEnding) return;
 
-  // Object card — pretend to announce what it just read
+  // Object card — announce what it read, with a real Chiquito coletilla
   $objectName.textContent = objectStr;
   $objectCard.classList.add('visible');
   subtitle(`Veo… ¡${objectStr}!`);
-  await delay(1300);
+  await playClip(nextSting());            // real Chiquito voice on detection
+  await delay(600);
   $objectCard.classList.remove('visible');
 
   // 3) Weave the object into the running story, then a cheap laugh
@@ -824,8 +829,6 @@ async function weaveBeat(index) {
   subtitle(line);
   storyText += ' ' + line;
   await speakAndWait(line);
-  // Chiquito sting (a different one each round) + canned laughter
-  await playClip(CHIQUITO_STINGS[index % CHIQUITO_STINGS.length]);
   await laughAndWait();
 }
 
