@@ -1,117 +1,59 @@
+"""El Teatro de los Cuentos — backend.
+
+Cuentacuentos infantil (4-9 años). El niño elige un cuento clásico y va enseñando
+objetos a la cámara que SUSTITUYEN elementos del cuento (la casa del cerdito, lo que
+lleva Caperucita en la cesta…). El backend detecta el objeto (LibreYOLO, COCO) y un
+narrador (Claude) lo teje en la historia, fiel al cuento pero con chispa, en español
+de España y con final feliz.
+"""
 import os
 import re
 import base64
-import random
 import numpy as np
 import cv2
-import requests
 from pathlib import Path
 from typing import Optional
 from PIL import Image
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, FileResponse, Response
-from fastapi.staticfiles import StaticFiles
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import anthropic
 
-# Load a local .env if present (so each teammate just drops their key there).
 try:
     from dotenv import load_dotenv
-    # override=True so a populated .env wins over an empty/stale shell var.
     load_dotenv(override=True)
 except ImportError:
     pass
 
-# ── Startup: LLM client ───────────────────────────────────────────────────────
+_HERE = Path(__file__).parent
+
+# ── LLM ───────────────────────────────────────────────────────────────────────
 _API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 if not _API_KEY:
-    print("[startup] WARNING: ANTHROPIC_API_KEY not set — narrator will use "
-          "canned fallback lines. Copy .env.example to .env and add your key.")
+    print("[startup] WARNING: ANTHROPIC_API_KEY no configurada — se usarán frases de "
+          "reserva. Copia .env.example a .env y pon tu clave.")
 client = anthropic.Anthropic(api_key=_API_KEY)
 
-# ── Cloud TTS — optional, swappable ───────────────────────────────────────────
-# Two providers supported; whichever has a key configured is used (fish.audio
-# first). Otherwise the browser's built-in speechSynthesis voices the show.
-#
-# fish.audio: set FISH_API_KEY. FISH_MODEL_ID picks the voice — defaults to the
-# Chiquito de la Calzada community model for the bit. (Parody of a public figure;
-# use your own fish.audio account.)
-FISH_KEY = os.environ.get("FISH_API_KEY", "")
-FISH_MODEL_ID = os.environ.get("FISH_MODEL_ID", "1f747932d1b947359760ad8b431cdf31")
-FISH_BACKBONE = os.environ.get("FISH_BACKBONE", "s1")
-
-# ElevenLabs: set ELEVENLABS_API_KEY + ELEVENLABS_VOICE_ID.
-ELEVEN_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
-ELEVEN_VOICE = os.environ.get("ELEVENLABS_VOICE_ID", "")
-ELEVEN_MODEL = os.environ.get("ELEVENLABS_MODEL", "eleven_multilingual_v2")
-
-if FISH_KEY:
-    print(f"[startup] Cloud TTS: fish.audio (model={FISH_MODEL_ID}).")
-elif ELEVEN_KEY:
-    print(f"[startup] Cloud TTS: ElevenLabs (voice={ELEVEN_VOICE or 'default'}).")
-else:
-    print("[startup] No cloud TTS configured — using browser voice. "
-          "Set FISH_API_KEY (or ELEVENLABS_API_KEY) in .env to enable.")
-
-# ── Startup: load LibreYOLO model once ────────────────────────────────────────
-# Model weights — try a repo-local copy first, then known local paths,
-# then fall through to "LibreYOLO9t.pt" which libreyolo auto-downloads.
-_HERE = Path(__file__).parent
-# LibreYOLO9m: best object recall of the YOLO9 sizes we tested (skateboard 0.90
-# vs 0.55 for the tiny model), still ~100ms/frame. Falls back to t if missing.
+# ── Modelo de visión (LibreYOLO9m — el más fiable según benchmark) ─────────────
 _MODEL_CANDIDATES = [
     str(_HERE / "weights" / "LibreYOLO9m.pt"),
-    str(_HERE / "weights" / "LibreYOLO9t.pt"),
-    "LibreYOLO9m.pt",  # falls through to libreyolo auto-download from HF
+    "LibreYOLO9m.pt",  # auto-descarga de HF si falta
 ]
-
 try:
     from libreyolo import LibreYOLO
-    _model_path = next((p for p in _MODEL_CANDIDATES if Path(p).exists()), "LibreYOLO9t.pt")
-    print(f"[startup] loading LibreYOLO from {_model_path} …")
-    _yolo = LibreYOLO(_model_path)
+    _mp = next((p for p in _MODEL_CANDIDATES if Path(p).exists()), "LibreYOLO9m.pt")
+    print(f"[startup] cargando LibreYOLO desde {_mp} …")
+    _yolo = LibreYOLO(_mp)
     YOLO_LOADED = True
-    print("[startup] LibreYOLO model loaded ✓")
+    print("[startup] modelo cargado ✓")
 except Exception as e:
-    print(f"[startup] libreyolo load failed: {e}. Will use fallback objects.")
+    print(f"[startup] fallo al cargar libreyolo: {e}. Se usarán los elementos clásicos.")
     _yolo = None
     YOLO_LOADED = False
 
-# Note: the webcam is owned by the BROWSER (getUserMedia), not the backend.
-# The frontend grabs frames and POSTs them to /capture for detection. This
-# means it works for anyone who opens the page — no server-side camera
-# permission needed.
+CONF_THRESHOLD = 0.25
 
-# ── Constants ─────────────────────────────────────────────────────────────────
-# Géneros disparatados que el público puede elegir.
-GENRES = [
-    "Tragedia griega",
-    "Telenovela venezolana",
-    "Cine negro de detectives",
-    "Drama existencial nórdico",
-    "Western espagueti",
-    "Teatro shakespeariano",
-    "Fantasía épica medieval",
-    "Documental épico de naturaleza",
-    "Ópera espacial",
-    "Telediario catastrofista",
-    "Culebrón de sobremesa",
-    "Épica vikinga",
-]
-
-# Objetos de reserva, absurdos y divertidos, si no se detecta nada.
-FALLBACK_OBJECTS = [
-    "una piña con secretos",
-    "un gato sospechoso",
-    "un patito de goma",
-    "un calcetín solitario",
-    "una planta de interior deprimida",
-    "un bocadillo a medio comer",
-    "un cono de tráfico fugitivo",
-    "una fregona con ambiciones",
-]
-
-# Traducción de las clases COCO (inglés) al español, para narrar y mostrar.
+# COCO (80 clases) → español, para nombrar el objeto en el cuento.
 COCO_ES = {
     "person": "una persona", "bicycle": "una bicicleta", "car": "un coche",
     "motorcycle": "una moto", "airplane": "un avión", "bus": "un autobús",
@@ -125,9 +67,9 @@ COCO_ES = {
     "handbag": "un bolso", "tie": "una corbata", "suitcase": "una maleta",
     "frisbee": "un frisbee", "skis": "unos esquís", "snowboard": "una tabla de snow",
     "sports ball": "una pelota", "kite": "una cometa", "baseball bat": "un bate",
-    "baseball glove": "un guante de béisbol", "skateboard": "un monopatín",
+    "baseball glove": "un guante", "skateboard": "un monopatín",
     "surfboard": "una tabla de surf", "tennis racket": "una raqueta",
-    "bottle": "una botella", "wine glass": "una copa de vino", "cup": "una taza",
+    "bottle": "una botella", "wine glass": "una copa", "cup": "una taza",
     "fork": "un tenedor", "knife": "un cuchillo", "spoon": "una cuchara",
     "bowl": "un cuenco", "banana": "un plátano", "apple": "una manzana",
     "sandwich": "un bocadillo", "orange": "una naranja", "broccoli": "un brócoli",
@@ -143,30 +85,106 @@ COCO_ES = {
     "toothbrush": "un cepillo de dientes",
 }
 
+# ── Cuentos ───────────────────────────────────────────────────────────────────
+# Cada escena: emoji (decorado), bg (color), prompt (lo que se pide al niño),
+# ctx (qué pasa, para el narrador) y default (el elemento clásico si no se detecta).
+TALES = {
+    "cerditos": {
+        "title": "Los tres cerditos",
+        "emoji": "🐷",
+        "cover": "🐷🐷🐷",
+        "intro_ctx": "Tres cerditos hermanos se despiden de su mamá y se van al bosque a construir, cada uno, su propia casa. Cerca ronda un lobo grande pero bastante torpe.",
+        "ending_ctx": "Los tres cerditos quedan sanos y salvos, juntos en la casa más fuerte, y el lobo se marcha para siempre sin hacer daño a nadie.",
+        "scenes": [
+            {"emoji": "🐷🌿", "bg": "#bfe3a3", "prompt": "¿Con qué construye su casa el primer cerdito?",
+             "ctx": "El primer cerdito, el más juguetón, construye su casita a toda prisa usando ESTE objeto en lugar de paja.", "default": "paja"},
+            {"emoji": "🐷🪵", "bg": "#a9d99a", "prompt": "¿Y la casa del segundo cerdito?",
+             "ctx": "El segundo cerdito construye su casa con ESTE objeto en lugar de palos de madera.", "default": "palos de madera"},
+            {"emoji": "🐷🧱", "bg": "#e6c79c", "prompt": "¿Y la del tercer cerdito, el más trabajador?",
+             "ctx": "El tercer cerdito, muy trabajador, construye una casa fuerte y resistente con ESTE objeto en lugar de ladrillos.", "default": "ladrillos"},
+            {"emoji": "🐺💨", "bg": "#a7c9ec", "prompt": "¡Llega el lobo soplando! ¿Con qué lo espantan?",
+             "ctx": "El lobo sopla y resopla, pero los cerditos lo espantan de forma divertida usando ESTE objeto. El lobo se asusta y huye, sin que nadie se haga daño.", "default": "una escoba"},
+            {"emoji": "🐷🎉", "bg": "#f3da8c", "prompt": "¡A celebrar! ¿Qué preparan para la fiesta?",
+             "ctx": "A salvo y juntos, los tres cerditos hacen una fiesta y preparan ESTE objeto como si fuera el manjar más rico del mundo.", "default": "una rica sopa"},
+        ],
+    },
+    "caperucita": {
+        "title": "Caperucita Roja",
+        "emoji": "🔴",
+        "cover": "🔴🐺",
+        "intro_ctx": "Caperucita, una niña con una capa roja, sale de casa para llevarle la merienda a su abuelita, que vive al otro lado del bosque. Un lobo astuto la observa entre los árboles.",
+        "ending_ctx": "El lobo sale corriendo, la abuelita está bien, y Caperucita, la abuelita y el leñador meriendan felices todos juntos. Nadie sufre ningún daño.",
+        "scenes": [
+            {"emoji": "🔴🧺", "bg": "#f4b8c1", "prompt": "¿Qué lleva Caperucita en la cesta para la abuelita?",
+             "ctx": "Caperucita prepara la cesta para su abuelita y, en lugar de pasteles, mete ESTE objeto con mucho cariño.", "default": "unos pasteles"},
+            {"emoji": "🐺🎭", "bg": "#c9b8e8", "prompt": "El lobo se disfraza de abuelita. ¿Con qué se disfraza?",
+             "ctx": "El lobo, muy pillo, se mete en la cama y se disfraza de abuelita usando ESTE objeto para que no lo reconozcan.", "default": "un gorro y unas gafas"},
+            {"emoji": "🐺👀", "bg": "#b7d9ec", "prompt": "—Abuelita… ¡qué cosa tan grande! ¿Qué le ve Caperucita al lobo?",
+             "ctx": "Caperucita mira al falso abuelito y, en lugar de '¡qué orejas tan grandes!', se sorprende de ESTE objeto enorme. Empieza a sospechar.", "default": "unas orejas"},
+            {"emoji": "🪓🌲", "bg": "#bfe0a8", "prompt": "¡Llega el leñador a ayudar! ¿Con qué ayuda?",
+             "ctx": "Un leñador bondadoso aparece y, en lugar de su hacha, usa ESTE objeto para espantar al lobo de forma amable. El lobo huye y la abuelita aparece sana y salva.", "default": "una cuerda"},
+            {"emoji": "🍰🫖", "bg": "#f3da8c", "prompt": "¡A merendar todos juntos! ¿Qué meriendan?",
+             "ctx": "Caperucita, la abuelita y el leñador se sientan felices a merendar ESTE objeto como si fuera lo más delicioso.", "default": "un rico bizcocho"},
+        ],
+    },
+    "gato": {
+        "title": "El gato con botas",
+        "emoji": "🐱",
+        "cover": "🐱👢",
+        "intro_ctx": "Un molinero le deja a su hijo pequeño solo un gato. Pero no es un gato cualquiera: es muy listo y habla, y promete hacer rico y feliz a su amo con un poco de ingenio.",
+        "ending_ctx": "Gracias al ingenio del gato, el joven se convierte en un señor importante, se casa con la princesa y todos viven felices. El gato con botas se vuelve el héroe del reino.",
+        "scenes": [
+            {"emoji": "🐱👢", "bg": "#f0c98a", "prompt": "El gato pide algo para sus patas. ¿Qué se pone?",
+             "ctx": "El gato, muy elegante, pide ponerse en las patas ESTE objeto en lugar de unas botas, para verse importante.", "default": "unas botas"},
+            {"emoji": "🐱👑", "bg": "#f4d27a", "prompt": "El gato lleva un regalo al rey. ¿Qué le regala?",
+             "ctx": "El gato va al palacio y le lleva al rey, de parte de su amo, ESTE objeto como un regalo magnífico.", "default": "un conejo del campo"},
+            {"emoji": "🐱✨", "bg": "#bcd9ec", "prompt": "Para impresionar a la princesa, ¿qué consigue el gato?",
+             "ctx": "El gato, listísimo, consigue ESTE objeto para que su amo deslumbre a la princesa y parezca un gran señor.", "default": "un traje precioso"},
+            {"emoji": "🐱👹", "bg": "#d8b8e0", "prompt": "El gato engaña al ogro. ¿Con qué lo despista?",
+             "ctx": "El gato se enfrenta a un ogro presumido y lo despista con astucia usando ESTE objeto. El ogro cae en la trampa (sin que nadie salga herido).", "default": "un ovillo de lana"},
+            {"emoji": "🐱🎉", "bg": "#f3da8c", "prompt": "¡Gran banquete de boda! ¿Qué sirven?",
+             "ctx": "En el gran banquete de la boda sirven ESTE objeto como el plato estrella, y todo el reino lo celebra.", "default": "un pastel enorme"},
+        ],
+    },
+}
+
 NARRATOR_SYSTEM = (
-    "Eres un narrador de teatro cómico que hace una voz en off en directo. Tu único objetivo es DAR RISA. "
-    "La técnica es el BATHOS: montas algo épico y solemne y lo revientas con una realidad cutre y española "
-    "(el Mercadona, la ITV, la suegra, un Cola Cao, el cuñado). Frases CORTAS, con ritmo y remate al final. "
-    "Nada de prosa florida: si suena elegante pero no hace gracia, has fallado. Humor blanco y luminoso, "
-    "NUNCA oscuro ni triste; nada de muerte ni sufrimiento. Español de España, coloquial y natural. "
-    "NO uses coletillas ni frases hechas de humoristas (nada de 'fistro', 'no puedorrr', 'te das cuén', "
-    "'pecador', etc.): escribe español normal y gracioso, sin muletillas postizas. "
-    "Máximo 2 frases, 35 palabras. Continúa la historia metiendo el objeto. Apto para todos los públicos. "
-    "Devuelve SOLO la narración hablada: sin acotaciones, sin efectos de sonido, sin asteriscos, sin markdown, "
-    "sin saltos de línea, sin etiquetas."
+    "Eres un cuentacuentos cálido y cariñoso que narra cuentos clásicos a niños de 4 a 9 años. "
+    "Hablas en español de España, con frases CORTAS, sencillas y claras, fáciles de entender para los más pequeños. "
+    "Eres fiel al cuento clásico, pero con una chispa de fantasía y ternura. "
+    "Cuando aparece un objeto, lo integras en la historia como si fuera lo más natural y mágico del mundo, "
+    "con asombro y alegría. Tono dulce, luminoso y seguro: NUNCA das miedo, ni hay daño, sangre, muerte ni tristeza; "
+    "los malos solo se asustan o se van. Nada de humor adulto, ironía ni coletillas: lenguaje de cuento infantil. "
+    "Devuelve SOLO la narración hablada en prosa: sin acotaciones, sin efectos de sonido, sin asteriscos, "
+    "sin markdown, sin saltos de línea, sin emojis, sin etiquetas. Máximo 2 frases, 35 palabras."
 )
 
-CANNED_FALLBACK = (
-    "¡Y entonces, contra todo pronóstico, no pasó absolutamente nada! "
-    "El público aguantó la respiración; el apuntador miró el reloj. La función, queridos míos, continúa."
-)
+_FALLBACK = {
+    "intro": "Érase una vez, en un lugar muy bonito, una historia a punto de empezar.",
+    "weave": "Y entonces, como por arte de magia, apareció justo lo que la historia necesitaba.",
+    "ending": "Y colorín colorado, este precioso cuento se ha acabado.",
+}
 
 app = FastAPI()
 
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
+_MD = re.compile(r"[*#_`]")
+
+
+def _clean(text: str) -> str:
+    text = _MD.sub("", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _np(x):
+    try:
+        return x.cpu().numpy()
+    except AttributeError:
+        return np.asarray(x)
+
 
 def _decode_data_url(data_url: str) -> Optional[np.ndarray]:
-    """Decode a browser canvas data URL (or raw base64 jpeg) into a BGR frame."""
     try:
         data = data_url.split(",", 1)[1] if "," in data_url else data_url
         raw = base64.b64decode(data)
@@ -177,225 +195,107 @@ def _decode_data_url(data_url: str) -> Optional[np.ndarray]:
         return None
 
 
-def _np(x):
-    try:
-        return x.cpu().numpy()
-    except AttributeError:
-        return np.asarray(x)
-
-
-CONF_THRESHOLD = 0.25  # tiny COCO model — keep it low so it catches more
-
-
-def _detect_objects(frame: np.ndarray) -> list[str]:
-    """Run LibreYOLO and return the single most prominent object, in Spanish.
-
-    Ignores 'person' — the user is always in frame, so we want the object
-    they're holding up, not them. Returns the highest-confidence non-person
-    class (translated to Spanish), or [] if nothing clears the threshold.
-    """
+def _detect_object(frame: np.ndarray) -> Optional[str]:
+    """Return the most prominent non-person object (Spanish), or None."""
     if not YOLO_LOADED or _yolo is None:
-        return []
+        return None
     try:
-        pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        results = _yolo(pil_img, conf=CONF_THRESHOLD)
+        pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        results = _yolo(pil, conf=CONF_THRESHOLD)
         r = results[0] if isinstance(results, (list, tuple)) else results
         conf_arr = _np(r.boxes.conf)
-        cls_arr  = _np(r.boxes.cls).astype(int)
-        names    = r.names
-        best_conf, best_name = 0.0, None
+        cls_arr = _np(r.boxes.cls).astype(int)
+        names = r.names
+        best_c, best_n = 0.0, None
         for c, k in zip(conf_arr, cls_arr):
             name = names.get(int(k), str(k))
-            if name != "person" and float(c) >= CONF_THRESHOLD and float(c) > best_conf:
-                best_conf, best_name = float(c), name
-        if best_name is None:
-            return []
-        return [COCO_ES.get(best_name, best_name)]
+            if name != "person" and float(c) >= CONF_THRESHOLD and float(c) > best_c:
+                best_c, best_n = float(c), name
+        return COCO_ES.get(best_n, best_n) if best_n else None
     except Exception as e:
         print(f"[detect] error: {e}")
-        return []
+        return None
 
 
-_STAGE_DIR = re.compile(r"\*[^*]*\*")  # *harmonica wails* style asides
-
-
-def _clean(text: str) -> str:
-    """Strip stage directions, markdown and line breaks so TTS reads clean prose."""
-    text = _STAGE_DIR.sub("", text)
-    text = text.replace("*", "").replace("#", "")
-    text = re.sub(r"\s+", " ", text)  # collapse newlines/extra spaces
-    return text.strip()
-
-
-def _llm(prompt: str, system: str = NARRATOR_SYSTEM) -> str:
+def _llm(prompt: str) -> str:
     msg = client.messages.create(
         model="claude-sonnet-4-5",
         max_tokens=120,
-        system=system,
+        system=NARRATOR_SYSTEM,
         messages=[{"role": "user", "content": prompt}],
     )
     return _clean(msg.content[0].text)
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
-
 @app.get("/", response_class=HTMLResponse)
 def serve_ui():
-    html_path = Path(__file__).parent / "index.html"
-    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+    return HTMLResponse((_HERE / "index.html").read_text(encoding="utf-8"))
 
 
-@app.get("/risas.mp3")
-def laugh_track():
-    return FileResponse(_HERE / "assets" / "risas.mp3", media_type="audio/mpeg")
+@app.get("/tales")
+def tales():
+    return {"tales": [{"id": tid, "title": t["title"], "emoji": t["emoji"], "cover": t["cover"]}
+                      for tid, t in TALES.items()]}
 
 
-# Serve the Chiquito soundboard clips (and any other audio) from /assets/*
-app.mount("/assets", StaticFiles(directory=str(_HERE / "assets")), name="assets")
-
-
-@app.get("/config")
-def config():
-    # Tells the frontend whether to use cloud TTS or the browser voice.
-    return {"cloud_tts": bool(FISH_KEY or (ELEVEN_KEY and ELEVEN_VOICE))}
-
-
-class TTSRequest(BaseModel):
-    text: str
-
-
-def _tts_fish(text: str) -> bytes:
-    r = requests.post(
-        "https://api.fish.audio/v1/tts",
-        headers={
-            "Authorization": f"Bearer {FISH_KEY}",
-            "Content-Type": "application/json",
-            "model": FISH_BACKBONE,
-        },
-        json={"text": text, "reference_id": FISH_MODEL_ID, "format": "mp3"},
-        timeout=30,
-    )
-    r.raise_for_status()
-    return r.content
-
-
-def _tts_eleven(text: str) -> bytes:
-    r = requests.post(
-        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_VOICE}",
-        headers={
-            "xi-api-key": ELEVEN_KEY,
-            "accept": "audio/mpeg",
-            "content-type": "application/json",
-        },
-        json={
-            "text": text,
-            "model_id": ELEVEN_MODEL,
-            "voice_settings": {"stability": 0.4, "similarity_boost": 0.8, "style": 0.6},
-        },
-        timeout=20,
-    )
-    r.raise_for_status()
-    return r.content
-
-
-@app.post("/tts")
-def tts(req: TTSRequest):
-    """Voice a line via cloud TTS and return MP3. 503 if not configured so the
-    frontend can fall back to the browser voice."""
-    if FISH_KEY:
-        provider = _tts_fish
-    elif ELEVEN_KEY and ELEVEN_VOICE:
-        provider = _tts_eleven
-    else:
-        raise HTTPException(status_code=503, detail="cloud TTS not configured")
-    try:
-        return Response(content=provider(req.text), media_type="audio/mpeg")
-    except Exception as e:
-        print(f"[tts] error: {e}")
-        raise HTTPException(status_code=502, detail="TTS failed")
-
-
-@app.get("/genres")
-def genres():
-    """List of selectable genres for the landing picker."""
-    return {"genres": GENRES}
-
-
-@app.get("/new_show")
-def new_show(genre: Optional[str] = None):
-    # Use the genre the audience picked; fall back to random if none/invalid.
-    if not genre or genre not in GENRES:
-        genre = random.choice(GENRES)
-    try:
-        theme = _llm(
-            f"Inventa un título de obra de teatro disparatado y divertidísimo para un espectáculo "
-            f"de género «{genre}» que va sobre objetos cotidianos y aburridos. "
-            "Devuelve SOLO el título, sin comillas ni texto extra. Máximo 8 palabras.",
-            system=("Eres un empresario teatral pomposo y con muchísima labia. "
-                    "Solo títulos en español de España, máximo 8 palabras, cuanto más absurdos mejor."),
-        )
-    except Exception:
-        theme = f"Los magníficos objetos de la {genre}"
-    return {"genre": genre, "theme": theme}
+@app.get("/tale/{tale_id}")
+def tale(tale_id: str):
+    t = TALES.get(tale_id)
+    if not t:
+        return {"error": "not found"}
+    return {
+        "id": tale_id, "title": t["title"], "emoji": t["emoji"], "cover": t["cover"],
+        "scenes": [{"emoji": s["emoji"], "bg": s["bg"], "prompt": s["prompt"], "default": s["default"]}
+                   for s in t["scenes"]],
+    }
 
 
 class CaptureRequest(BaseModel):
-    image: Optional[str] = None  # data URL grabbed from the browser webcam
+    image: Optional[str] = None
 
 
 @app.post("/capture")
 def capture(req: CaptureRequest):
-    detected: list[str] = []
+    obj = None
     if req.image:
         frame = _decode_data_url(req.image)
         if frame is not None:
-            detected = _detect_objects(frame)
-    if detected:
-        return {"objects": detected, "detected": True}
-    # Nothing real this frame — the frontend keeps scanning, or uses the
-    # funny fallback once the reading window is over.
-    return {"objects": [random.choice(FALLBACK_OBJECTS)], "detected": False}
+            obj = _detect_object(frame)
+    return {"object": obj, "detected": obj is not None}
 
 
 class NarrateRequest(BaseModel):
-    genre: str
-    theme: str
-    story_so_far: str
+    tale_id: str
+    scene_index: int = 0
     new_object: str = ""
-    mode: str = "weave"           # "intro" | "weave" | "ending"
-    is_ending: bool = False       # back-compat; equivalent to mode="ending"
-
-
-_WEAVE_FALLBACK = "Y, como era de esperar, aquello lo cambió todo. Más o menos."
+    story_so_far: str = ""
+    mode: str = "weave"   # "intro" | "weave" | "ending"
 
 
 @app.post("/narrate")
 def narrate(req: NarrateRequest):
-    mode = "ending" if req.is_ending else req.mode
+    t = TALES.get(req.tale_id)
+    if not t:
+        return {"line": _FALLBACK.get(req.mode, _FALLBACK["weave"])}
     try:
-        if mode == "intro":
-            prompt = (
-                f"Género: {req.genre}. Obra: «{req.theme}».\n"
-                "Abre con UNA sola frase tipo cuento ('Érase una vez…') que presente a un "
-                "protagonista sencillo, en clave de comedia. Español de España. Máximo 18 palabras."
-            )
-        elif mode == "ending":
-            prompt = (
-                f"Género: {req.genre}. Obra: «{req.theme}».\n"
-                f"Historia hasta ahora: {req.story_so_far}\n"
-                "Cierra con UNA frase que ate los objetos que han ido apareciendo, "
-                "con remate cómico por bathos. Español de España. Máximo 25 palabras."
-            )
-        else:  # weave — incorporate the new object into the running story
-            prompt = (
-                f"Género: {req.genre}. Obra: «{req.theme}».\n"
-                f"Historia hasta ahora: {req.story_so_far}\n"
-                f"Acaba de aparecer en escena este objeto real: {req.new_object}.\n"
-                f"Continúa la historia en UNA frase corta metiendo «{req.new_object}» de forma "
-                "natural pero absurda (bathos, detalle castizo). Español de España. Máximo 22 palabras."
-            )
-        line = _llm(prompt)
+        if req.mode == "intro":
+            prompt = (f"Cuento: «{t['title']}». Situación inicial: {t['intro_ctx']}\n"
+                      "Cuenta el COMIENZO del cuento en 1-2 frases ('Érase una vez…'), presentando a los "
+                      "personajes con ternura. Para niños pequeños.")
+        elif req.mode == "ending":
+            prompt = (f"Cuento: «{t['title']}». Historia hasta ahora: {req.story_so_far}\n"
+                      f"Final feliz: {t['ending_ctx']}\n"
+                      "Cierra el cuento en 1-2 frases, con un final feliz y tierno y un 'colorín colorado'.")
+        else:  # weave
+            scene = t["scenes"][max(0, min(req.scene_index, len(t["scenes"]) - 1))]
+            obj = req.new_object or scene["default"]
+            prompt = (f"Cuento: «{t['title']}». Historia hasta ahora: {req.story_so_far}\n"
+                      f"Lo que pasa ahora: {scene['ctx']}\n"
+                      f"El objeto que aparece es: {obj}.\n"
+                      f"Cuenta esta parte en 1-2 frases, metiendo «{obj}» en la historia con asombro y "
+                      "naturalidad, fiel al cuento. Para niños pequeños.")
+        return {"line": _llm(prompt)}
     except Exception as e:
-        print(f"[narrate] LLM error: {e}")
-        line = CANNED_FALLBACK if mode != "weave" else _WEAVE_FALLBACK
-    return {"line": line}
+        print(f"[narrate] error: {e}")
+        return {"line": _FALLBACK.get(req.mode, _FALLBACK["weave"])}
