@@ -1,73 +1,72 @@
-# 🎭 The Absurd Theater
+# 🎭 El Teatro de los Cuentos
 
-A webcam-based interactive theater. You **pick a zany genre** (Greek tragedy,
-telenovela, spaghetti western, space opera…), and an AI narrator improvises a
-**funny, over-the-top** story in **Spanish (Spain)**, weaving in whatever real
-objects you hold up to the camera — narrating a coffee mug or a banana with full
-(comedic) operatic gravity. One continuous ~90s performance.
+Un **cuentacuentos interactivo para niños (4–9 años)**. El niño elige un cuento
+clásico y va **enseñando objetos a la cámara** que **se convierten en parte del
+cuento**: la casa del cerdito, lo que lleva Caperucita en la cesta, las botas del
+gato… El objeto detectado aparece en la escena y el narrador lo teje en la
+historia, fiel al cuento pero con chispa, en español de España y con final feliz.
 
+- **Cuentos:** Los tres cerditos · Caperucita Roja · El gato con botas
 - **Backend:** Python + FastAPI (`main.py`)
-- **Camera:** owned by the **browser** (`getUserMedia`) — frames are POSTed to the
-  backend for detection, so it works for anyone who opens the page
-- **Vision:** [libreyolo](https://pypi.org/project/libreyolo/) object detection on each captured frame
-- **Narration:** Anthropic Claude (`claude-sonnet-4-5`)
-- **Voice:** browser Web Speech API (no cloud TTS needed)
-- **Frontend:** a single `index.html` (velvet curtains, gold title cards, subtitles)
+- **Visión:** [libreyolo](https://pypi.org/project/libreyolo/) (modelo `LibreYOLO9m`), la cámara la abre el **navegador**
+- **Narración:** Anthropic Claude (`claude-sonnet-4-5`), tono dulce para niños
+- **Voz:** Web Speech API del navegador (es-ES, lenta y clara)
+- **Frontend:** un solo `index.html` (teatro luminoso, escenas con emoji + la foto del objeto del niño)
 
 ---
 
-## Setup
+## Cómo funciona
 
-Requires **Python 3.10+** and a **webcam**.
+1. El niño elige uno de los 3 cuentos.
+2. Se abren las cortinas y empieza el cuento ("Érase una vez…").
+3. En **5 momentos**, el cuento le pide algo ("¿Con qué construye su casa el
+   cerdito?"). El niño **enseña un objeto a la cámara**.
+4. El objeto se reconoce, su **foto entra en la escena** con destellos, y el
+   narrador lo mete en la historia.
+5. Final feliz, telón y un **librito** con todo su cuento y sus fotos.
+
+> Si la cámara no reconoce el objeto (o no hay cámara), el cuento sigue con el
+> **elemento clásico** de esa escena (paja, palos, ladrillos…), así nunca se corta.
+
+> ⚠️ El modelo reconoce ~80 objetos comunes de casa (peluche-oso, pelota, libro,
+> taza, botella, cuchara, plátano…), **no** la mayoría de juguetes. Para que
+> acierte, enseña objetos cotidianos.
+
+## Instalación
+
+Requiere **Python 3.10+** y **webcam**.
 
 ```bash
 git clone https://github.com/DiegoGarcimartin/welcometothetheatre
 cd welcometothetheatre
 
-# create + activate a virtualenv
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r requirements.txt    # baja torch vía libreyolo (unos cientos de MB)
 
-# install deps (this pulls torch via libreyolo — a few hundred MB)
-pip install -r requirements.txt
-
-# set your Anthropic key (get the team key from Diego — Slack / 1Password)
-cp .env.example .env
-# then edit .env and paste the key after ANTHROPIC_API_KEY=
+cp .env.example .env               # pega tu clave de Anthropic dentro
 ```
 
-> The model weights (`weights/LibreYOLO9t.pt`) ship in the repo, so there's
-> **no download** on first run. The narrator needs the key in `.env`; without
-> it the show still runs but uses canned fallback lines.
+> El modelo (`weights/LibreYOLO9m.pt`) viene en el repo: sin descargas al
+> arrancar. Sin la clave de Anthropic el cuento se cuenta con frases de reserva.
 
-## Run
+## Ejecutar
 
 ```bash
-./start.sh
-# or: uvicorn main:app --port 8010
+./start.sh                          # o: uvicorn main:app --port 8010
 ```
 
-Open **http://localhost:8010** and click **Start the Show**. Your **browser**
-will ask for **camera permission** — click *Allow*. Use **Chrome** for the best
-Web Speech API voices, and turn the volume up.
+Abre **http://localhost:8010** en **Chrome**, elige un cuento y permite la cámara.
+Sube el volumen (la voz es el hilo principal del cuento).
 
-> The camera is opened by the browser, not the server, so the only thing that
-> needs camera access is your browser tab. Each teammate just opens the page on
-> their own machine and allows the camera.
+## Endpoints
 
-## How it works
-
-| Endpoint | Purpose |
+| Endpoint | Para qué |
 |---|---|
-| `GET /` | serves the HTML stage |
-| `GET /genres` | the list of selectable genres (for the landing picker) |
-| `GET /new_show?genre=…` | uses the chosen genre (or random) + an LLM-generated play title |
-| `POST /capture` | runs detection on the posted frame; ignores `person`, returns the held objects in Spanish (conf ≥ 0.35; funny fallback if none) |
-| `POST /narrate` | returns a 2-3 sentence dramatic continuation in genre |
+| `GET /` | sirve el teatro (HTML) |
+| `GET /tales` | lista de cuentos |
+| `GET /tale/{id}` | escenas de un cuento (emoji, fondo, pregunta, elemento clásico) |
+| `POST /capture` | detecta el objeto del frame (en español; ignora personas) |
+| `POST /narrate` | narra una parte (`intro` / `weave` / `ending`) metiendo el objeto |
 
-If `ANTHROPIC_API_KEY` is unset or the API fails, the narrator falls back to
-canned dramatic lines so the show never stalls. If the camera can't be opened,
-the stage shows a clear message and the show continues on fallback objects.
-
-The `narrate()` and `speak()` functions are isolated so they can be swapped for
-a different LLM or a cloud TTS later.
+La voz (`speak()`) está aislada por si se quiere cambiar a una TTS en la nube.

@@ -33,15 +33,16 @@ y el narrador lo teje en la historia. 5 objetos por cuento. Final feliz. Telón.
 
 ## Tareas (en orden; subir a producción tras cada una)
 - [x] **T0** Backlog + contexto (este archivo).
-- [ ] **T1** Limpieza: borrar clips Chiquito + risas.mp3; quitar código de comedia (géneros, objetos graciosos, risas/clips JS, TTS fish/eleven, prompts Chiquito).
-- [ ] **T2** Modelo más potente: benchmark (DFINE/DEIM/RTDETR vs YOLO9m), elegir el más preciso con velocidad aceptable, cablearlo.
-- [ ] **T3** Datos de los 3 cuentos en backend + endpoints `/tales`, `/tale/{id}`.
-- [ ] **T4** `/narrate` reescrito: cuentacuentos fiel + chispa, sustituye el objeto en el hueco, finales seguros.
-- [ ] **T5** Frontend visual: teatro luminoso, portada 3 cuentos, escena con emoji + fondo, progreso ⭐, subtítulo grande.
-- [ ] **T6** Frontend flujo: elegir cuento → cortinas → 5 escenas (narra → "enséñame X" → captura → foto a la escena → narra sustitución) → final → telón.
-- [ ] **T7** Recap "librito" final con el cuento entero + fotos de objetos + botón "otra vez".
-- [ ] **T8** Robustez/pulido: fallback de detección suave (sin objetos graciosos), error de cámara, ritmo y voz para niños.
-- [ ] **T9** README actualizado al nuevo proyecto.
+- [x] **T1** Limpieza: borrar clips Chiquito + risas.mp3; quitar código de comedia (géneros, objetos graciosos, risas/clips JS, TTS fish/eleven, prompts Chiquito).
+- [x] **T2** Modelo más potente: benchmark (DFINE/DEIM/RTDETR vs YOLO9m), elegir el más preciso con velocidad aceptable, cablearlo.
+- [x] **T3** Datos de los 3 cuentos en backend + endpoints `/tales`, `/tale/{id}`.
+- [x] **T4** `/narrate` reescrito: cuentacuentos fiel + chispa, sustituye el objeto en el hueco, finales seguros.
+- [x] **T5** Frontend visual: teatro luminoso, portada 3 cuentos, escena con emoji + fondo, progreso ⭐, subtítulo grande.
+- [x] **T6** Frontend flujo: elegir cuento → cortinas → 5 escenas (narra → "enséñame X" → captura → foto a la escena → narra sustitución) → final → telón.
+- [x] **T7** Recap "librito" final con el cuento entero + fotos de objetos + botón "otra vez".
+- [x] **T8** Robustez/pulido: fallback de detección suave (sin objetos graciosos), error de cámara, ritmo y voz para niños.
+- [x] **T9** README actualizado al nuevo proyecto.
 
 ## Estado
 - 2026-06-02: T0 hecho. Ejecutando en continuo.
+- 2026-06-04: T1–T9 COMPLETADO. App de cuentacuentos infantil lista y en producción.
